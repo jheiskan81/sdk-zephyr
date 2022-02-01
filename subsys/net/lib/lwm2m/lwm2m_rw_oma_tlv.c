@@ -382,6 +382,13 @@ static int put_end_ri(struct lwm2m_output_context *out,
 		return -EINVAL;
 	}
 
+	/* v1.1 allows resource instance level access
+	 * -> skip writing Multiple Resource TLV if path level is 4
+	 */
+	if (path->level == 4U) {
+		return 0;
+	}
+
 	return put_end_tlv(out, fd->mark_pos_ri, &fd->writer_flags,
 			   WRITER_RESOURCE_INSTANCE,
 			   OMA_TLV_TYPE_MULTI_RESOURCE, path->res_id);
