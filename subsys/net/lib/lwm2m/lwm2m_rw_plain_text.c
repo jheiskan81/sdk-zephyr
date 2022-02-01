@@ -420,8 +420,10 @@ const struct lwm2m_reader plain_text_reader = {
 int do_read_op_plain_text(struct lwm2m_message *msg, int content_format)
 {
 	/* Plain text can only return single resource */
-	if (msg->path.level != 3U) {
-		return -EPERM; /* NOT_ALLOWED */
+	if (msg->path.level < 3U) {
+		return -EPERM;
+	} else if (msg->path.level > 4U) {
+		return -ENOENT;
 	}
 
 	return lwm2m_perform_read_op(msg, content_format);
