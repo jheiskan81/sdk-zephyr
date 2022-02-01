@@ -2326,6 +2326,12 @@ static int lwm2m_read_handler(struct lwm2m_engine_obj_inst *obj_inst,
 			continue;
 		}
 
+		/* v1.1 allows resource instance level access */
+		if (msg->path.level == 4U &&
+		    msg->path.res_inst_id != res->res_instances[i].res_inst_id) {
+			continue;
+		}
+
 		if (res->res_inst_count > 1) {
 			msg->path.res_inst_id =
 				res->res_instances[i].res_inst_id;
