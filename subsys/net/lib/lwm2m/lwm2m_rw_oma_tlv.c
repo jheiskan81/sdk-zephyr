@@ -912,6 +912,53 @@ static int write_tlv_resource(struct lwm2m_message *msg, struct oma_tlv *tlv)
 	return 0;
 }
 
+static int lwm2m_multi_resource_tlv_parse(struct lwm2m_message *msg,
+					  struct oma_tlv *multi_resource_tlv)
+{
+	struct oma_tlv tlv_resource_instance;
+	int len2;
+	int pos = 0;
+	int ret;
+
+	if (msg->in.block_ctx) {
+		msg->in.block_ctx->res_id = multi_resource_tlv->id;
+	}
+
+	if (multi_resource_tlv->length == 0U) {
+		/* Mo nested data Create path level 3  */
+		return write_tlv_resource(msg, multi_resource_tlv);
+	}
+
+	while (pos < multi_resource_tlv->length &&
+	       (len2 = oma_tlv_get(&tlv_resource_instance, &msg->in, true))) {
+		if (tlv_resource_instance.type != OMA_TLV_TYPE_RESOURCE_INSTANCE) {
+			/* Skip Unsupported TLV type */
+			LOG_ERR("Multi resource id not supported %u %d", tlv_resource_instance.id,
+				tlv_resource_instance.length);
+			return -ENOTSUP;
+		}
+
+		msg->path.res_id = multi_resource_tlv->id;
+		msg->path.res_inst_id = tlv_resource_instance.id;
+		msg->path.level = 4U;
+		ret = do_write_op_tlv_item(msg);
+
+		/*
+		 * ignore errors for CREATE op
+		 * for OP_CREATE and BOOTSTRAP WRITE: errors on
+		 * optional resources are ignored (ENOTSUP)
+		 */
+		if (ret < 0 && !((ret == -ENOTSUP) &&
+				 (msg->ctx->bootstrap_mode || msg->operation == LWM2M_OP_CREATE))) {
+			return ret;
+		}
+
+		pos += len2;
+	}
+
+	return 0;
+}
+
 int do_write_op_tlv(struct lwm2m_message *msg)
 {
 	struct lwm2m_engine_obj_inst *obj_inst = NULL;
@@ -970,20 +1017,34 @@ int do_write_op_tlv(struct lwm2m_message *msg)
 
 			while (pos < tlv.length &&
 			       (len2 = oma_tlv_get(&tlv2, &msg->in, true))) {
-				if (tlv2.type != OMA_TLV_TYPE_RESOURCE) {
-					pos += len2;
-					continue;
-				}
-
-				ret = write_tlv_resource(msg, &tlv2);
-				if (ret) {
-					return ret;
+				if (tlv2.type == OMA_TLV_TYPE_RESOURCE) {
+					ret = write_tlv_resource(msg, &tlv2);
+					if (ret) {
+						return ret;
+					}
+				} else if (tlv2.type == OMA_TLV_TYPE_MULTI_RESOURCE) {
+					oma_tlv_get(&tlv2, &msg->in, false);
+					/* Analyze Nested Resource instances */
+					ret = lwm2m_multi_resource_tlv_parse(msg, &tlv2);
+					if (ret) {
+						return ret;
+					}
+				} else {
+					/* Skip Unsupported TLV type */
+					return -ENOTSUP;
 				}
 
 				pos += len2;
 			}
 		} else if (tlv.type == OMA_TLV_TYPE_RESOURCE) {
 			ret = write_tlv_resource(msg, &tlv);
+			if (ret) {
+				return ret;
+			}
+		} else if (tlv.type == OMA_TLV_TYPE_MULTI_RESOURCE) {
+			oma_tlv_get(&tlv, &msg->in, false);
+			/* Analyze Nested Resource instances */
+			ret = lwm2m_multi_resource_tlv_parse(msg, &tlv);
 			if (ret) {
 				return ret;
 			}
