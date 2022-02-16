@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <sys/util.h>
+#include "lwm2m_object.h"
 #include "lwm2m_util.h"
 
 #define SHIFT_LEFT(v, o, m) (((v) << (o)) & (m))
@@ -421,4 +423,54 @@ int lwm2m_ftoa(double *input, char *out, size_t outlen, int8_t dec_limit)
 	return snprintk(out, outlen, "%s%lld.%s",
 			/* handle negative val2 when val1 is 0 */
 			(val1 == 0 && val2 < 0) ? "-" : "", (long long)val1, buf);
+}
+
+int lwm2m_path2string(char *buff, size_t buff_size, struct lwm2m_obj_path *input, int level_max)
+{
+	size_t fpl = 0; /* Length of the formed path */
+	int level;
+	int w;
+
+	if (!buff || buff_size < sizeof("/") || !input) {
+		return -EINVAL;
+	}
+
+	memset(buff, '\0', buff_size);
+
+	level = MIN(input->level, level_max);
+
+	/* Write path element at a time and leave space for the terminating NULL */
+	for (int idx = LWM2M_PATH_LEVEL_NONE; idx <= level; idx++) {
+		switch (idx) {
+		case LWM2M_PATH_LEVEL_NONE:
+			w = snprintk(&(buff[fpl]), buff_size - fpl, "/");
+			break;
+		case LWM2M_PATH_LEVEL_OBJECT:
+			w = snprintk(&(buff[fpl]), buff_size - fpl, "%" PRIu16 "/", input->obj_id);
+			break;
+		case LWM2M_PATH_LEVEL_OBJECT_INST:
+			w = snprintk(&(buff[fpl]), buff_size - fpl, "%" PRIu16 "/",
+				     input->obj_inst_id);
+			break;
+		case LWM2M_PATH_LEVEL_RESOURCE:
+			w = snprintk(&(buff[fpl]), buff_size - fpl, "%" PRIu16 "", input->res_id);
+			break;
+		case LWM2M_PATH_LEVEL_RESOURCE_INST:
+			w = snprintk(&(buff[fpl]), buff_size - fpl, "/%" PRIu16 "",
+				     input->res_inst_id);
+			break;
+		default:
+			__ASSERT_NO_MSG(false);
+			return -EINVAL;
+		}
+
+		if (w < 0) {
+			return -ENOBUFS;
+		}
+
+		/* Next path element, overwrites terminating NULL */
+		fpl += w;
+	}
+
+	return fpl;
 }
