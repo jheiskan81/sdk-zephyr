@@ -1096,12 +1096,12 @@ const struct lwm2m_reader senml_json_reader = {
 	.get_objlnk = get_objlnk,
 };
 
-static uint8_t lwm2m_use_base_name(sys_slist_t *lwm_path_list)
+static uint8_t lwm2m_use_base_name(sys_slist_t *lwm2m_path_list)
 {
 	uint8_t recursive_path = 0;
 	struct lwm2m_obj_path_list *entry;
 
-	SYS_SLIST_FOR_EACH_CONTAINER(lwm_path_list, entry, node) {
+	SYS_SLIST_FOR_EACH_CONTAINER(lwm2m_path_list, entry, node) {
 		if (entry->path.level < 3) {
 			recursive_path++;
 		}
@@ -1110,19 +1110,19 @@ static uint8_t lwm2m_use_base_name(sys_slist_t *lwm_path_list)
 }
 
 static void lwm2m_define_longest_match_url_for_base_name(struct json_out_formatter_data *fd,
-							 sys_slist_t *lwm_path_list)
+							 sys_slist_t *lwm2m_path_list)
 {
 	struct lwm2m_obj_path_list *entry;
 
 	/* Set base name use to false */
 	fd->base_name_used = false;
 
-	if (!lwm2m_use_base_name(lwm_path_list)) {
+	if (!lwm2m_use_base_name(lwm2m_path_list)) {
 		/* do not use base at all */
 		return;
 	}
 
-	SYS_SLIST_FOR_EACH_CONTAINER(lwm_path_list, entry, node) {
+	SYS_SLIST_FOR_EACH_CONTAINER(lwm2m_path_list, entry, node) {
 		if (fd->base_name_used == false) {
 			/* First at list is define compare for rest */
 			fd->base_name.level = entry->path.level;
@@ -1195,21 +1195,21 @@ void lwm2m_senml_json_context_init(struct lwm2m_senml_json_context *ctx)
 int do_read_op_senml_json(struct lwm2m_message *msg)
 {
 	struct lwm2m_obj_path_list temp;
-	sys_slist_t lwm_path_list;
+	sys_slist_t lwm2m_path_list;
 	int ret;
 	struct json_out_formatter_data fd;
 
 	(void)memset(&fd, 0, sizeof(fd));
 	engine_set_out_user_data(&msg->out, &fd);
 	/* Init list */
-	sys_slist_init(&lwm_path_list);
+	sys_slist_init(&lwm2m_path_list);
 	/* Init message here ready for response */
 	temp.path = msg->path;
 	/* Add one entry to list */
-	sys_slist_append(&lwm_path_list, &temp.node);
+	sys_slist_append(&lwm2m_path_list, &temp.node);
 
 	/* Detect longest match base name to url */
-	lwm2m_define_longest_match_url_for_base_name(&fd, &lwm_path_list);
+	lwm2m_define_longest_match_url_for_base_name(&fd, &lwm2m_path_list);
 
 	ret = lwm2m_perform_read_op(msg, LWM2M_FORMAT_APP_SEML_JSON);
 	engine_clear_out_user_data(&msg->out);
@@ -1529,8 +1529,8 @@ end_of_operation:
 }
 
 static uint8_t json_parse_composite_read_paths(struct lwm2m_message *msg,
-					       sys_slist_t *lwm_path_list,
-					       sys_slist_t *lwm_path_free_list)
+					       sys_slist_t *lwm2m_path_list,
+					       sys_slist_t *lwm2m_path_free_list)
 {
 	struct json_in_formatter_data fd;
 	struct lwm2m_obj_path path;
@@ -1600,8 +1600,8 @@ static uint8_t json_parse_composite_read_paths(struct lwm2m_message *msg,
 			ret = parse_path(full_name, strlen(full_name), &path);
 			if (ret >= 0) {
 				path.level = ret;
-				if (lwm2m_engine_add_path_to_list(lwm_path_list, lwm_path_free_list,
-								  &path) == 0) {
+				if (lwm2m_engine_add_path_to_list(
+					    lwm2m_path_list, lwm2m_path_free_list, &path) == 0) {
 					valid_path_cnt++;
 				}
 			}
@@ -1615,37 +1615,37 @@ int do_composite_read_op_senml_json(struct lwm2m_message *msg)
 	int ret;
 	struct json_out_formatter_data fd;
 	struct lwm2m_obj_path_list lwm2m_path_list_buf[CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE];
-	sys_slist_t lwm_path_list;
-	sys_slist_t lwm_path_free_list;
+	sys_slist_t lwm2m_path_list;
+	sys_slist_t lwm2m_path_free_list;
 	uint8_t path_list_size;
 
 	/* Init list */
-	lwm2m_engine_path_list_init(&lwm_path_list, &lwm_path_free_list, lwm2m_path_list_buf,
+	lwm2m_engine_path_list_init(&lwm2m_path_list, &lwm2m_path_free_list, lwm2m_path_list_buf,
 				    CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE);
 
 	/* Parse Path's from SenML JSO payload */
-	path_list_size = json_parse_composite_read_paths(msg, &lwm_path_list, &lwm_path_free_list);
+	path_list_size = json_parse_composite_read_paths(msg, &lwm2m_path_list, &lwm2m_path_free_list);
 	if (path_list_size == 0) {
 		LOG_ERR("No Valid Url at msg");
 		return -ESRCH;
 	}
 
 	/* Clear path which are part are part of recursive path /1 will include /1/0/1 */
-	lwm2m_engine_clear_duplicate_path(&lwm_path_list, &lwm_path_free_list);
+	lwm2m_engine_clear_duplicate_path(&lwm2m_path_list, &lwm2m_path_free_list);
 
 	(void)memset(&fd, 0, sizeof(fd));
 	engine_set_out_user_data(&msg->out, &fd);
 
 	/* Detect longest match base name to url */
-	lwm2m_define_longest_match_url_for_base_name(&fd, &lwm_path_list);
+	lwm2m_define_longest_match_url_for_base_name(&fd, &lwm2m_path_list);
 
-	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SEML_JSON, &lwm_path_list);
+	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SEML_JSON, &lwm2m_path_list);
 	engine_clear_out_user_data(&msg->out);
 
 	return ret;
 }
 
-int do_send_op_senml_json(struct lwm2m_message *msg, sys_slist_t *lwm_path_list)
+int do_send_op_senml_json(struct lwm2m_message *msg, sys_slist_t *lwm2m_path_list)
 {
 	struct json_out_formatter_data fd;
 	int ret;
@@ -1654,10 +1654,29 @@ int do_send_op_senml_json(struct lwm2m_message *msg, sys_slist_t *lwm_path_list)
 	engine_set_out_user_data(&msg->out, &fd);
 
 	/* Detect longest match base name to url */
-	lwm2m_define_longest_match_url_for_base_name(&fd, lwm_path_list);
+	lwm2m_define_longest_match_url_for_base_name(&fd, lwm2m_path_list);
 
-	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SEML_JSON, lwm_path_list);
+	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SEML_JSON, lwm2m_path_list);
 	engine_clear_out_user_data(&msg->out);
 
 	return ret;
+}
+
+int do_composite_observe_parse_path_senml_json(struct lwm2m_message *msg,
+					       sys_slist_t *lwm2m_path_list,
+					       sys_slist_t *lwm2m_path_free_list)
+{
+	uint8_t path_list_size;
+	uint16_t original_offset;
+
+	original_offset = msg->in.offset;
+	/* Parse Path's from SenML JSO payload */
+	path_list_size = json_parse_composite_read_paths(msg, lwm2m_path_list, lwm2m_path_free_list);
+	if (path_list_size == 0) {
+		LOG_ERR("No Valid Url at msg");
+		return -ESRCH;
+	}
+
+	msg->in.offset = original_offset;
+	return 0;
 }
