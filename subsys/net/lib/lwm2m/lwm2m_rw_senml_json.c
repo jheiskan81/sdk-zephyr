@@ -1296,32 +1296,6 @@ static int lwm2m_senml_write_operation(struct lwm2m_message *msg, struct json_in
 	return ret;
 }
 
-static int senml_json_path_to_string(uint8_t *buf, size_t buf_len, struct lwm2m_obj_path *path,
-				     uint8_t path_level)
-{
-	int name_length;
-
-	if (path_level == LWM2M_PATH_LEVEL_NONE) {
-		name_length = snprintk(buf, buf_len, "/");
-	} else if (path_level == LWM2M_PATH_LEVEL_OBJECT) {
-		name_length = snprintk(buf, buf_len, "/%u/", path->obj_id);
-	} else if (path_level == LWM2M_PATH_LEVEL_OBJECT_INST) {
-		name_length = snprintk(buf, buf_len, "/%u/%u/", path->obj_id, path->obj_inst_id);
-	} else if (path_level == LWM2M_PATH_LEVEL_RESOURCE) {
-		name_length = snprintk(buf, buf_len, "/%u/%u/%u", path->obj_id, path->obj_inst_id,
-				       path->res_id);
-	} else {
-		name_length = snprintk(buf, buf_len, "/%u/%u/%u/%u", path->obj_id,
-				       path->obj_inst_id, path->res_id, path->res_inst_id);
-	}
-
-	if (name_length > 0) {
-		buf[name_length] = '\0';
-	}
-
-	return name_length;
-}
-
 int do_write_op_senml_json(struct lwm2m_message *msg)
 {
 	struct json_in_formatter_data fd;
@@ -1345,7 +1319,7 @@ int do_write_op_senml_json(struct lwm2m_message *msg)
 		/* Re-load Base name and Name data from context block */
 		if (block_ctx->base_name_stored) {
 			/* base name path generate to string */
-			name_length = senml_json_path_to_string(base_name, sizeof(base_name),
+			name_length = lwm2m_path_to_string(base_name, sizeof(base_name),
 								&block_ctx->base_name_path,
 								block_ctx->base_name_path.level);
 
@@ -1369,7 +1343,7 @@ int do_write_op_senml_json(struct lwm2m_message *msg)
 
 		if (block_ctx->full_name_true) {
 			/* full name path generate to string */
-			name_length = senml_json_path_to_string(full_name, sizeof(full_name),
+			name_length = lwm2m_path_to_string(full_name, sizeof(full_name),
 								&block_ctx->base_name_path,
 								block_ctx->resource_path_level);
 

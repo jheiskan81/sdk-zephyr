@@ -65,7 +65,7 @@ static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 		return -ENOMEM;
 	}
 
-	len = lwm2m_path2string(fd->bnames[fd->input.rec_cnt], fd->bname_sz, path,
+	len = lwm2m_path_to_string(fd->bnames[fd->input.rec_cnt], fd->bname_sz, path,
 				    LWM2M_PATH_LEVEL_OBJECT_INST);
 
 	if (len < 0) {

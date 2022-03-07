@@ -28,6 +28,6 @@ int lwm2m_ftoa(double *input, char *out, size_t outlen, int8_t dec_limit);
  *
  * returns used buffer space with '\0'
  */
-int lwm2m_path2string(char *buff, size_t buff_size, struct lwm2m_obj_path *input, int level_max);
+int lwm2m_path_to_string(char *buff, size_t buff_size, struct lwm2m_obj_path *input, int level_max);
 
 #endif /* LWM2M_UTIL_H_ */

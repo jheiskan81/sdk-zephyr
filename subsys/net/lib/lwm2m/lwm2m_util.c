@@ -425,7 +425,7 @@ int lwm2m_ftoa(double *input, char *out, size_t outlen, int8_t dec_limit)
 			(val1 == 0 && val2 < 0) ? "-" : "", (long long)val1, buf);
 }
 
-int lwm2m_path2string(char *buff, size_t buff_size, struct lwm2m_obj_path *input, int level_max)
+int lwm2m_path_to_string(char *buff, size_t buff_size, struct lwm2m_obj_path *input, int level_max)
 {
 	size_t fpl = 0; /* Length of the formed path */
 	int level;
