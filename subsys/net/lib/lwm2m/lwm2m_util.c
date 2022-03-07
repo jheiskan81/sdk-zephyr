@@ -474,3 +474,82 @@ int lwm2m_path_to_string(char *buff, size_t buff_size, struct lwm2m_obj_path *in
 
 	return fpl;
 }
+
+uint16_t lwm2m_atou16(const uint8_t *buf, uint16_t buflen, uint16_t *len)
+{
+	uint16_t val = 0U;
+	uint16_t pos = 0U;
+
+	/* we should get a value first - consume all numbers */
+	while (pos < buflen && isdigit(buf[pos])) {
+		val = val * 10U + (buf[pos] - '0');
+		pos++;
+	}
+
+	*len = pos;
+	return val;
+}
+
+int lwm2m_string_to_path(const char *pathstr, struct lwm2m_obj_path *path,
+			  char delim)
+{
+	uint16_t value, len;
+	int i, tokstart = -1, toklen;
+	int end_index = strlen(pathstr) - 1;
+
+	(void)memset(path, 0, sizeof(*path));
+	for (i = 0; i <= end_index; i++) {
+		/* search for first numeric */
+		if (tokstart == -1) {
+			if (!isdigit((unsigned char)pathstr[i])) {
+				continue;
+			}
+
+			tokstart = i;
+		}
+
+		/* find delimiter char or end of string */
+		if (pathstr[i] == delim || i == end_index) {
+			toklen = i - tokstart + 1;
+
+			/* don't process delimiter char */
+			if (pathstr[i] == delim) {
+				toklen--;
+			}
+
+			if (toklen <= 0) {
+				continue;
+			}
+
+			value = lwm2m_atou16(&pathstr[tokstart], toklen, &len);
+			switch (path->level) {
+
+			case 0:
+				path->obj_id = value;
+				break;
+
+			case 1:
+				path->obj_inst_id = value;
+				break;
+
+			case 2:
+				path->res_id = value;
+				break;
+
+			case 3:
+				path->res_inst_id = value;
+				break;
+
+			default:
+				return -EINVAL;
+
+			}
+
+			/* increase the path level for each token found */
+			path->level++;
+			tokstart = -1;
+		}
+	}
+
+	return 0;
+}
