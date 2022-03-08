@@ -55,19 +55,31 @@ struct cbor_in_fmt_data {
 /* Get CBOR output formatter data */
 #define LWM2M_OFD_CBOR(octx) ((struct cbor_out_formatter_data *)engine_get_out_user_data(octx))
 
-static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
+static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	size_t len;
+	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
+	int len;
 
-	bool ret =
-		cbor_encode_lwm2m_senml(CPKT_BUF_W_REGION(out->out_cpkt),
-					(struct lwm2m_senml *)&(LWM2M_OFD_CBOR(out)->input), &len);
-
-	if (ret) {
-		out->out_cpkt->offset += len;
+	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+		return -ENOMEM;
 	}
 
-	return ret ? len : -EINVAL;
+	len = lwm2m_path_to_string(fd->bnames[fd->input.rec_cnt], fd->bname_sz, path,
+				    LWM2M_PATH_LEVEL_OBJECT_INST);
+
+	if (len < 0) {
+		return len;
+	}
+
+	/* Tell CBOR encoder where to find the name */
+	struct record *record = GET_CBOR_FD_REC(fd);
+
+	record->bn.hndl.value = fd->bnames[fd->input.rec_cnt];
+	record->bn.hndl.len = len;
+	record->bn_prsnt = 1;
+
+	return 0;
 }
 
 static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
@@ -75,6 +87,11 @@ static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	/* Get a handle to a structure which is used for tracking the encoding process */
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
 	int len;
+
+	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+		return -ENOMEM;
+	}
 
 	/* Write resource name */
 	len = snprintk(fd->names[fd->input.rec_cnt], sizeof("65535"), "%" PRIu16 "", path->res_id);
@@ -94,45 +111,74 @@ static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	return 0;
 }
 
-static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
+/* TODO: Strictly speaking this fxn is unnecessary but used for error checking, remove later */
+static int put_begin(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
+	int ret;
 
-	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
-		return -ENOMEM;
+	ret = put_basename(out, path);
+	if (ret < 0) {
+		__ASSERT_NO_MSG(false);
+		return ret;
 	}
 
-	/* Basename is the path a requester requests */
-	int len = lwm2m_path_to_string(fd->bnames[fd->input.rec_cnt], fd->bname_sz, path,
-				    LWM2M_PATH_LEVEL_OBJECT_INST);
+	struct record *record = GET_CBOR_FD_REC(fd);
 
-	if ((len < sizeof("/0/0/") - 1) || (len > sizeof("/65535/65535/") - 1)) {
+	if ((record->bn.hndl.len < sizeof("/0") - 1) ||
+	    (record->bn.hndl.len > sizeof("/65535") - 1)) {
 		__ASSERT_NO_MSG(false);
 		return -EINVAL;
 	}
 
-	/* Get the first record which will hold the basename */
+	/* Does not advance the record count, waiting for data */
+	return 0;
+}
+
+static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
+{
+	size_t len;
+
+	bool ret =
+		cbor_encode_lwm2m_senml(CPKT_BUF_W_REGION(out->out_cpkt),
+					(struct lwm2m_senml *)&(LWM2M_OFD_CBOR(out)->input), &len);
+
+	if (ret) {
+		out->out_cpkt->offset += len;
+	}
+
+	return ret ? len : -EINVAL;
+}
+
+static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
+{
+	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
+	int ret;
+	uint8_t tmp = path->level;
+
+	/* In case path level is set to 'none' or 'object' and we have only default oi */
+	path->level = LWM2M_PATH_LEVEL_OBJECT_INST;
+
+	ret = put_basename(out, path);
+	path->level = tmp;
+	if (ret < 0) {
+		__ASSERT_NO_MSG(false);
+		return ret;
+	}
+
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	record->bn.hndl.value = fd->bnames[fd->input.rec_cnt];
-	record->bn.hndl.len = len;
-	record->bn_prsnt = 1;
+	if ((record->bn.hndl.len < sizeof("/0/0/") - 1) ||
+	    (record->bn.hndl.len > sizeof("/65535/65535/") - 1)) {
+		__ASSERT_NO_MSG(false);
+		return -EINVAL;
+	}
 
-	/* Does not advance the record count, name next */
 	return 0;
 }
 
 static int put_begin_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
-
-	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
-		return -ENOMEM;
-	}
-
-	/* Does not advance the record count, waiting for data */
 	return put_name_r(out, path);
 }
 
@@ -142,7 +188,7 @@ static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 	int res_id_len = strlen(fd->names[fd->input.rec_cnt]);
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	/* Append the resource instance name */
+	/* Forms name from resource id and resource instance id */
 	int len = snprintk(&fd->names[fd->input.rec_cnt][res_id_len], sizeof("/65535"),
 			   "/%" PRIu16 "", path->res_inst_id);
 
@@ -160,15 +206,8 @@ static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 
 static int put_name_nth_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
-
-	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
-		return -ENOMEM;
-	}
-
-	/* With the default instance as resource name
-	 * and resource instance name are already in place
+	/* With first instance the resource name
+	 * and resource instance name - if used - are already in place
 	 */
 	if (path->res_inst_id > 0) {
 		int ret = put_name_r(out, path);
@@ -498,6 +537,7 @@ static int do_write_op_item(struct lwm2m_message *msg, struct record *rec)
 }
 
 const struct lwm2m_writer senml_cbor_writer = {
+	.put_begin = put_begin,
 	.put_end = put_end,
 	.put_begin_oi = put_begin_oi,
 	.put_begin_r = put_begin_r,
