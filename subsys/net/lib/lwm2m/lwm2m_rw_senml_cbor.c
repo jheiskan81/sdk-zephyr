@@ -33,10 +33,12 @@ struct cbor_out_formatter_data {
 	/* Data */
 	struct lwm2m_senml input;
 
-	/* Storage for basenames and names */
+	/* Storage for basenames and names
+	 * MAX_RESOURCE_LEN ~ sizeof("65535/999/65535/999")
+	 */
 	struct {
-		char bnames[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("/65535/65535/")];
-		char names[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("65535/65535")];
+		char bnames[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("/65535/999/")];
+		char names[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("65535/999")];
 		size_t bname_sz; /* Basename buff size */
 		size_t name_sz; /* Name buff size */
 	};
@@ -44,12 +46,15 @@ struct cbor_out_formatter_data {
 
 struct cbor_in_fmt_data {
 	/* Decoded data */
-	struct lwm2m_senml output;
+	struct lwm2m_senml dcd; /* Decoded data */
 	struct record *current;
+	char basename[sizeof("/65535/999/")]; /* Null terminated basename */
 };
 
 /* Get the current record */
 #define GET_CBOR_FD_REC(fd) &((fd)->input.recs[(fd)->input.rec_cnt])
+/* Get a record */
+#define GET_IN_FD_REC_I(fd, i) &((fd)->dcd.recs[i])
 /* Consume the current record */
 #define CONSUME_CBOR_FD_REC(fd) &((fd)->input.recs[(fd)->input.rec_cnt++])
 /* Get CBOR output formatter data */
@@ -108,30 +113,6 @@ static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	record->n.hndl.len = len;
 	record->n_prsnt = 1;
 
-	return 0;
-}
-
-/* TODO: Strictly speaking this fxn is unnecessary but used for error checking, remove later */
-static int put_begin(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
-{
-	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
-	int ret;
-
-	ret = put_basename(out, path);
-	if (ret < 0) {
-		__ASSERT_NO_MSG(false);
-		return ret;
-	}
-
-	struct record *record = GET_CBOR_FD_REC(fd);
-
-	if ((record->bn.hndl.len < sizeof("/0") - 1) ||
-	    (record->bn.hndl.len > sizeof("/65535") - 1)) {
-		__ASSERT_NO_MSG(false);
-		return -EINVAL;
-	}
-
-	/* Does not advance the record count, waiting for data */
 	return 0;
 }
 
@@ -516,6 +497,27 @@ static int do_write_op_item(struct lwm2m_message *msg, struct record *rec)
 		return -EINVAL;
 	}
 
+	/* Composite op - name with basename */
+	if (rec->n_prsnt) {
+		char name[sizeof("65535/999")]; /* Null terminated name */
+		int len = MIN(sizeof(name) - 1, rec->n.hndl.len);
+		char fqn[MAX_RESOURCE_LEN + 1] = {0};
+
+		snprintk(name, len + 1, "%s", rec->n.hndl.value);
+
+		/* Form fully qualified path name */
+		snprintk(fqn, sizeof(fqn), "%s%s", fd->basename, name);
+
+		/* Set path on record basis */
+		ret = lwm2m_string_to_path(fqn, &msg->path, '/');
+		if (ret < 0) {
+			__ASSERT_NO_MSG(false);
+			return ret;
+		}
+	}
+
+	fd->current = rec;
+
 	ret = lwm2m_get_or_create_engine_obj(msg, &obj_inst, &created);
 	if (ret < 0) {
 		return ret;
@@ -531,13 +533,10 @@ static int do_write_op_item(struct lwm2m_message *msg, struct record *rec)
 		return -ENOENT;
 	}
 
-	fd->current = rec;
-
 	return lwm2m_write_handler(obj_inst, res, res_inst, obj_field, msg);
 }
 
 const struct lwm2m_writer senml_cbor_writer = {
-	.put_begin = put_begin,
 	.put_end = put_end,
 	.put_begin_oi = put_begin_oi,
 	.put_begin_r = put_begin_r,
@@ -576,8 +575,8 @@ int do_read_op_senml_cbor(struct lwm2m_message *msg)
 
 	(void)memset(fd, 0, sizeof(*fd));
 	engine_set_out_user_data(&msg->out, fd);
-	fd->bname_sz = sizeof("/65535/65535/");
-	fd->name_sz = sizeof("65535/65535");
+	fd->bname_sz = sizeof("/65535/999/");
+	fd->name_sz = sizeof("65535/999");
 
 	ret = lwm2m_perform_read_op(msg, LWM2M_FORMAT_APP_SENML_CBOR);
 
@@ -588,6 +587,136 @@ int do_read_op_senml_cbor(struct lwm2m_message *msg)
 
 	return ret;
 }
+
+static uint8_t parse_composite_read_paths(struct lwm2m_message *msg,
+		sys_slist_t *lwm2m_path_list,
+		sys_slist_t *lwm2m_path_free_list)
+{
+	char basename[MAX_RESOURCE_LEN + 1] = {0}; /* to include terminating null */
+	char name[MAX_RESOURCE_LEN + 1] = {0}; /* to include terminating null */
+	char fqn[MAX_RESOURCE_LEN + 1] = {0};
+	struct lwm2m_obj_path path;
+	struct cbor_in_fmt_data *fd;
+	uint8_t paths = 0;
+	uint32_t isize;
+	bool decoded;
+	int len;
+	int ret;
+
+
+	fd = malloc(sizeof(*fd));
+	if (!fd) {
+		LOG_WRN("unable to decode, out of memory");
+		return -ENOBUFS;
+	}
+
+	(void)memset(fd, 0, sizeof(*fd));
+	engine_set_in_user_data(&msg->in, fd);
+
+	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_REGION(&msg->in), &fd->dcd, &isize);
+
+	if (!decoded) {
+		__ASSERT_NO_MSG(false);
+		goto out;
+	}
+
+	msg->in.offset += isize;
+
+	for (int idx = 0; idx < fd->dcd.rec_cnt; idx++) {
+
+		/* Where to find the basenames and names */
+		struct record *record = GET_IN_FD_REC_I(fd, idx);
+
+		/* Set null terminated effective basename */
+		if (record->bn_prsnt) {
+			len = MIN(sizeof(basename)-1, record->bn.hndl.len);
+			snprintk(basename, len + 1, "%s", record->bn.hndl.value);
+			basename[len] = '\0';
+		}
+
+		/* Best effort with read, skip if no proper name is available */
+		if (!record->n_prsnt) {
+			if (strcmp(basename, "") == 0) {
+				continue;
+			}
+		}
+
+		/* Set null terminated name */
+		if (record->n_prsnt) {
+			len = MIN(sizeof(name)-1, record->n.hndl.len);
+			snprintk(name, len + 1, "%s", record->n.hndl.value);
+			name[len] = '\0';
+		}
+
+		/* Form fully qualified path name */
+		snprintk(fqn, sizeof(fqn), "%s%s", basename, name);
+
+		ret = lwm2m_string_to_path(fqn, &path, '/');
+
+		/* invalid path is forgiven with read */
+		if (ret < 0) {
+			continue;
+		}
+
+		ret = lwm2m_engine_add_path_to_list(lwm2m_path_list, lwm2m_path_free_list, &path);
+
+		if (ret < 0) {
+			continue;
+		}
+
+		paths++;
+	}
+
+out:
+	free(fd);
+	fd = NULL;
+
+	return paths;
+}
+
+
+int do_composite_read_op_senml_cbor(struct lwm2m_message *msg)
+{
+	int ret;
+	struct cbor_out_formatter_data *fd;
+	struct lwm2m_obj_path_list lwm2m_path_list_buf[CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE];
+	sys_slist_t lwm_path_list;
+	sys_slist_t lwm_path_free_list;
+	uint8_t len;
+
+	lwm2m_engine_path_list_init(&lwm_path_list,
+				    &lwm_path_free_list,
+				    lwm2m_path_list_buf,
+				    CONFIG_LWM2M_COMPOSITE_PATH_LIST_SIZE);
+
+	/* Parse paths */
+	len = parse_composite_read_paths(msg, &lwm_path_list, &lwm_path_free_list);
+	if (len == 0) {
+		LOG_ERR("No Valid URL at msg");
+		return -ESRCH;
+	}
+
+	lwm2m_engine_clear_duplicate_path(&lwm_path_list, &lwm_path_free_list);
+
+	fd = malloc(sizeof(struct cbor_out_formatter_data));
+	if (!fd) {
+		LOG_WRN("unable to encode, out of memory");
+		return -ENOBUFS;
+	}
+	(void)memset(fd, 0, sizeof(struct cbor_out_formatter_data));
+	engine_set_out_user_data(&msg->out, fd);
+	fd->bname_sz = sizeof("/65535/999/");
+	fd->name_sz = sizeof("65535/999");
+
+	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SENML_CBOR, &lwm_path_list);
+
+	free(fd);
+	fd = NULL;
+	engine_clear_out_user_data(&msg->out);
+
+	return ret;
+}
+
 
 int do_write_op_senml_cbor(struct lwm2m_message *msg)
 {
@@ -620,14 +749,23 @@ int do_write_op_senml_cbor(struct lwm2m_message *msg)
 	engine_set_in_user_data(&msg->in, fd);
 
 	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_PTR(&msg->in), ICTX_BUF_R_LEFT_SZ(&msg->in),
-					   &fd->output, &decoded_sz);
+					   &fd->dcd, &decoded_sz);
 
 	if (decoded) {
 		msg->in.offset += decoded_sz;
 
-		for (int idx = 0; idx < fd->output.rec_cnt; idx++) {
+		for (int idx = 0; idx < fd->dcd.rec_cnt; idx++) {
 
-			ret = do_write_op_item(msg, &fd->output.recs[idx]);
+			struct record *rec = &fd->dcd.recs[idx];
+
+			/* Basename applies for current and succeeding records */
+			if (rec->bn_prsnt) {
+				int len = MIN(sizeof(fd->basename) - 1, rec->bn.hndl.len);
+
+				snprintk(fd->basename, len + 1, "%s", rec->bn.hndl.value);
+			}
+
+			ret = do_write_op_item(msg, rec);
 
 			/* Write isn't supposed to fail */
 			if (ret < 0) {
