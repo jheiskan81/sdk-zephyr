@@ -13,6 +13,7 @@ extern const struct lwm2m_writer senml_cbor_writer;
 extern const struct lwm2m_reader senml_cbor_reader;
 
 int do_read_op_senml_cbor(struct lwm2m_message *msg);
+int do_composite_read_op_senml_cbor(struct lwm2m_message *msg);
 int do_write_op_senml_cbor(struct lwm2m_message *msg);
 
 #endif /* LWM2M_RW_SENML_CBOR_H_ */

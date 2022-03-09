@@ -3752,6 +3752,11 @@ static int do_composite_read_op(struct lwm2m_message *msg, uint16_t content_form
 		return do_composite_read_op_senml_json(msg);
 #endif
 
+#if defined(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)
+	case LWM2M_FORMAT_APP_SENML_CBOR:
+		return do_composite_read_op_senml_cbor(msg);
+#endif
+
 	default:
 		LOG_ERR("Unsupported content-format: %u", content_format);
 		return -ENOMSG;
@@ -4304,6 +4309,11 @@ static int do_composite_write_op(struct lwm2m_message *msg,
 #if defined(CONFIG_LWM2M_RW_SENML_JSON_SUPPORT)
 	case LWM2M_FORMAT_APP_SEML_JSON:
 		return do_write_op_senml_json(msg);
+#endif
+
+#if defined(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)
+	case LWM2M_FORMAT_APP_SENML_CBOR:
+		return do_write_op_senml_cbor(msg);
 #endif
 
 	default:
