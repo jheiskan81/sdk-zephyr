@@ -3775,6 +3775,12 @@ static int do_composite_observe_read_path_op(struct lwm2m_message *msg, uint16_t
 								  lwm2m_path_free_list);
 #endif
 
+#if defined(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)
+	case LWM2M_FORMAT_APP_SENML_CBOR:
+		return do_composite_observe_parse_path_senml_cbor(msg, lwm2m_path_list,
+								  lwm2m_path_free_list);
+#endif
+
 	default:
 		LOG_ERR("Unsupported content-format: %u", content_format);
 		return -ENOMSG;

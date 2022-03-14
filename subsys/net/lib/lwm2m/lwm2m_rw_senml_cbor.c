@@ -781,3 +781,24 @@ int do_write_op_senml_cbor(struct lwm2m_message *msg)
 
 	return ret < 0 ?  ret : decoded_sz;
 }
+
+int do_composite_observe_parse_path_senml_cbor(struct lwm2m_message *msg,
+					       sys_slist_t *lwm2m_path_list,
+					       sys_slist_t *lwm2m_path_free_list)
+{
+	uint16_t original_offset;
+	uint8_t len;
+
+	original_offset = msg->in.offset;
+
+	/* Parse paths */
+	len = parse_composite_read_paths(msg, lwm2m_path_list, lwm2m_path_free_list);
+
+	if (len == 0) {
+		LOG_ERR("No Valid URL at msg");
+		return -ESRCH;
+	}
+
+	msg->in.offset = original_offset;
+	return 0;
+}
