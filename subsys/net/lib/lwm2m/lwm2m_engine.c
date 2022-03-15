@@ -6228,6 +6228,11 @@ static int do_send_op(struct lwm2m_message *msg, uint16_t content_format,
 		return do_send_op_senml_json(msg, lwm2m_path_list);
 #endif
 
+#if defined(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)
+	case LWM2M_FORMAT_APP_SENML_CBOR:
+		return do_send_op_senml_cbor(msg, lwm2m_path_list);
+#endif
+
 	default:
 		LOG_ERR("Unsupported content-format for /dp: %u", content_format);
 		return -ENOMSG;

@@ -20,4 +20,6 @@ int do_composite_observe_parse_path_senml_cbor(struct lwm2m_message *msg,
 					       sys_slist_t *lwm2m_path_list,
 					       sys_slist_t *lwm2m_path_free_list);
 
+int do_send_op_senml_cbor(struct lwm2m_message *msg, sys_slist_t *lwm2m_path_list);
+
 #endif /* LWM2M_RW_SENML_CBOR_H_ */
