@@ -33,14 +33,11 @@ struct cbor_out_formatter_data {
 	/* Data */
 	struct lwm2m_senml input;
 
-	/* Storage for basenames and names
-	 * MAX_RESOURCE_LEN ~ sizeof("65535/999/65535/999")
-	 */
+	/* Storage for basenames and names ~ sizeof("/65535/999/") */
 	struct {
-		char bnames[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("/65535/999/")];
-		char names[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("65535/999")];
-		size_t bname_sz; /* Basename buff size */
+		char names[CONFIG_LWM2M_RW_SENML_CBOR_RECORDS][sizeof("/65535/999/")];
 		size_t name_sz; /* Name buff size */
+		uint8_t name_cnt;
 	};
 };
 
@@ -51,6 +48,7 @@ struct cbor_in_fmt_data {
 	char basename[sizeof("/65535/999/")]; /* Null terminated basename */
 };
 
+#define GET_CBOR_FD_NAME(fd) ((fd)->names[(fd)->name_cnt])
 /* Get the current record */
 #define GET_CBOR_FD_REC(fd) &((fd)->input.recs[(fd)->input.rec_cnt])
 /* Get a record */
@@ -60,18 +58,64 @@ struct cbor_in_fmt_data {
 /* Get CBOR output formatter data */
 #define LWM2M_OFD_CBOR(octx) ((struct cbor_out_formatter_data *)engine_get_out_user_data(octx))
 
+static struct cbor_out_formatter_data *setup_out_fmt_data(struct lwm2m_message *msg)
+{
+	struct cbor_out_formatter_data *fd = malloc(sizeof(*fd));
+
+	if (!fd) {
+		return NULL;
+	}
+
+	(void)memset(fd, 0, sizeof(*fd));
+	engine_set_out_user_data(&msg->out, fd);
+	fd->name_sz = sizeof("/65535/999/");
+
+	return fd;
+}
+
+static void clear_out_fmt_data(struct lwm2m_message *msg, struct cbor_out_formatter_data *fd)
+{
+	free(fd);
+	fd = NULL;
+
+	engine_clear_out_user_data(&msg->out);
+}
+
+static struct cbor_in_fmt_data *setup_in_fmt_data(struct lwm2m_message *msg)
+{
+	struct cbor_in_fmt_data *fd = malloc(sizeof(*fd));
+
+	if (!fd) {
+		return NULL;
+	}
+
+	(void)memset(fd, 0, sizeof(*fd));
+	engine_set_in_user_data(&msg->in, fd);
+
+	return fd;
+}
+
+static void clear_in_fmt_data(struct lwm2m_message *msg, struct cbor_in_fmt_data *fd)
+{
+	free(fd);
+	fd = NULL;
+
+	engine_clear_in_user_data(&msg->in);
+}
+
 static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
 	int len;
 
-	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+	if (fd->name_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		LOG_ERR("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
 		return -ENOMEM;
 	}
 
-	len = lwm2m_path_to_string(fd->bnames[fd->input.rec_cnt], fd->bname_sz, path,
-				    LWM2M_PATH_LEVEL_OBJECT_INST);
+	char *basename = GET_CBOR_FD_NAME(fd);
+
+	len = lwm2m_path_to_string(basename, fd->name_sz, path, LWM2M_PATH_LEVEL_OBJECT_INST);
 
 	if (len < 0) {
 		return len;
@@ -80,9 +124,16 @@ static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 	/* Tell CBOR encoder where to find the name */
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	record->bn.hndl.value = fd->bnames[fd->input.rec_cnt];
+	record->bn.hndl.value = basename;
 	record->bn.hndl.len = len;
 	record->bn_prsnt = 1;
+
+	if ((len < sizeof("0/0") - 1) || (len >= sizeof("65535/999"))) {
+		__ASSERT_NO_MSG(false);
+		return -EINVAL;
+	}
+
+	fd->name_cnt++;
 
 	return 0;
 }
@@ -93,15 +144,17 @@ static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
 	int len;
 
-	if (fd->input.rec_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		__ASSERT_PRINT("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+	if (fd->name_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		LOG_ERR("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
 		return -ENOMEM;
 	}
 
-	/* Write resource name */
-	len = snprintk(fd->names[fd->input.rec_cnt], sizeof("65535"), "%" PRIu16 "", path->res_id);
+	char *name = GET_CBOR_FD_NAME(fd);
 
-	if ((len < sizeof("0") - 1) || (len > sizeof("65535") - 1)) {
+	/* Write resource name */
+	len = snprintk(name, sizeof("65535"), "%" PRIu16 "", path->res_id);
+
+	if (len < sizeof("0") - 1) {
 		__ASSERT_NO_MSG(false);
 		return -EINVAL;
 	}
@@ -109,7 +162,7 @@ static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	/* Tell CBOR encoder where to find the name */
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	record->n.hndl.value = fd->names[fd->input.rec_cnt];
+	record->n.hndl.value = name;
 	record->n.hndl.len = len;
 	record->n_prsnt = 1;
 
@@ -133,7 +186,6 @@ static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path
 
 static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
 	int ret;
 	uint8_t tmp = path->level;
 
@@ -142,69 +194,65 @@ static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 
 	ret = put_basename(out, path);
 	path->level = tmp;
-	if (ret < 0) {
-		__ASSERT_NO_MSG(false);
-		return ret;
-	}
 
-	struct record *record = GET_CBOR_FD_REC(fd);
-
-	if ((record->bn.hndl.len < sizeof("/0/0/") - 1) ||
-	    (record->bn.hndl.len > sizeof("/65535/65535/") - 1)) {
-		__ASSERT_NO_MSG(false);
-		return -EINVAL;
-	}
-
-	return 0;
+	return ret;
 }
 
 static int put_begin_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	return put_name_r(out, path);
+	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
+
+	int ret = put_name_r(out, path);
+
+	/* Will use the same name to in which to concatenate ri name */
+	if (path->level < LWM2M_PATH_LEVEL_RESOURCE_INST) {
+		fd->name_cnt++;
+	}
+
+	return ret;
 }
 
 static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
-	int res_id_len = strlen(fd->names[fd->input.rec_cnt]);
+	char *name = GET_CBOR_FD_NAME(fd);
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	/* Forms name from resource id and resource instance id */
-	int len = snprintk(&fd->names[fd->input.rec_cnt][res_id_len], sizeof("/65535"),
-			   "/%" PRIu16 "", path->res_inst_id);
+	if (fd->name_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		LOG_ERR("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+		return -ENOMEM;
+	}
 
-	if ((len < sizeof("/0") - 1) || (len > sizeof("/65535") - 1)) {
+	/* Forms name from resource id and resource instance id */
+	int len = snprintk(name, sizeof("65535/999"),
+			   "%" PRIu16 "/%" PRIu16 "",
+			   path->res_id, path->res_inst_id);
+
+	if (len < sizeof("0/0") - 1) {
 		__ASSERT_NO_MSG(false);
 		return -EINVAL;
 	}
 
-	/* Length includes res inst ID */
-	record->n.hndl.len += len;
+	/* Tell CBOR encoder where to find the name */
+	record->n.hndl.value = name;
+	record->n.hndl.len = len;
+	record->n_prsnt = 1;
 
-	/* Does not advance the record count, waiting for data */
+	fd->name_cnt++;
+
 	return 0;
 }
 
 static int put_name_nth_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
-	/* With first instance the resource name
-	 * and resource instance name - if used - are already in place
-	 */
+	int ret = 0;
+
+	/* With the first ri the resource name (and ri name) are already in place */
 	if (path->res_inst_id > 0) {
-		int ret = put_name_r(out, path);
-
-		if (ret < 0) {
-			return ret;
-		}
-
 		ret = put_begin_ri(out, path);
-		if (ret < 0) {
-			return ret;
-		}
 	}
 
-	/* Does not advance the record count, waiting for data */
-	return 0;
+	return ret;
 }
 
 static int put_value(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int32_t value)
@@ -567,23 +615,15 @@ const struct lwm2m_reader senml_cbor_reader = {
 int do_read_op_senml_cbor(struct lwm2m_message *msg)
 {
 	int ret;
-	struct cbor_out_formatter_data *fd = malloc(sizeof(*fd));
+	struct cbor_out_formatter_data *fd = setup_out_fmt_data(msg);
 
 	if (!fd) {
-		return -ENOBUFS;
+		return -ENOMEM;
 	}
-
-	(void)memset(fd, 0, sizeof(*fd));
-	engine_set_out_user_data(&msg->out, fd);
-	fd->bname_sz = sizeof("/65535/999/");
-	fd->name_sz = sizeof("65535/999");
 
 	ret = lwm2m_perform_read_op(msg, LWM2M_FORMAT_APP_SENML_CBOR);
 
-	free(fd);
-	fd = NULL;
-
-	engine_clear_out_user_data(&msg->out);
+	clear_out_fmt_data(msg, fd);
 
 	return ret;
 }
@@ -604,14 +644,11 @@ static uint8_t parse_composite_read_paths(struct lwm2m_message *msg,
 	int ret;
 
 
-	fd = malloc(sizeof(*fd));
+	fd = setup_in_fmt_data(msg);
 	if (!fd) {
-		LOG_WRN("unable to decode, out of memory");
-		return -ENOBUFS;
+		LOG_ERR("unable to decode composite read paths, out of memory");
+		return -ENOMEM;
 	}
-
-	(void)memset(fd, 0, sizeof(*fd));
-	engine_set_in_user_data(&msg->in, fd);
 
 	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_REGION(&msg->in), &fd->dcd, &isize);
 
@@ -668,8 +705,7 @@ static uint8_t parse_composite_read_paths(struct lwm2m_message *msg,
 	}
 
 out:
-	free(fd);
-	fd = NULL;
+	clear_in_fmt_data(msg, fd);
 
 	return paths;
 }
@@ -698,21 +734,15 @@ int do_composite_read_op_senml_cbor(struct lwm2m_message *msg)
 
 	lwm2m_engine_clear_duplicate_path(&lwm_path_list, &lwm_path_free_list);
 
-	fd = malloc(sizeof(struct cbor_out_formatter_data));
+	fd = setup_out_fmt_data(msg);
 	if (!fd) {
-		LOG_WRN("unable to encode, out of memory");
-		return -ENOBUFS;
+		LOG_ERR("unable to encode composite read msg, out of memory");
+		return -ENOMEM;
 	}
-	(void)memset(fd, 0, sizeof(struct cbor_out_formatter_data));
-	engine_set_out_user_data(&msg->out, fd);
-	fd->bname_sz = sizeof("/65535/999/");
-	fd->name_sz = sizeof("65535/999");
 
 	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SENML_CBOR, &lwm_path_list);
 
-	free(fd);
-	fd = NULL;
-	engine_clear_out_user_data(&msg->out);
+	clear_out_fmt_data(msg, fd);
 
 	return ret;
 }
@@ -739,14 +769,11 @@ int do_write_op_senml_cbor(struct lwm2m_message *msg)
 		return do_write_op_item(msg, NULL);
 	}
 
-	fd = malloc(sizeof(*fd));
+	fd = setup_in_fmt_data(msg);
 	if (!fd) {
-		LOG_WRN("unable to decode, out of memory");
-		return -ENOBUFS;
+		LOG_ERR("unable to decode msg, out of memory");
+		return -ENOMEM;
 	}
-
-	(void)memset(fd, 0, sizeof(*fd));
-	engine_set_in_user_data(&msg->in, fd);
 
 	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_PTR(&msg->in), ICTX_BUF_R_LEFT_SZ(&msg->in),
 					   &fd->dcd, &decoded_sz);
@@ -776,8 +803,7 @@ int do_write_op_senml_cbor(struct lwm2m_message *msg)
 		ret = -EBADMSG;
 	}
 
-	free(fd);
-	fd = NULL;
+	clear_in_fmt_data(msg, fd);
 
 	return ret < 0 ?  ret : decoded_sz;
 }
@@ -801,4 +827,21 @@ int do_composite_observe_parse_path_senml_cbor(struct lwm2m_message *msg,
 
 	msg->in.offset = original_offset;
 	return 0;
+}
+
+int do_send_op_senml_cbor(struct lwm2m_message *msg, sys_slist_t *lwm2m_path_list)
+{
+	int ret;
+	struct cbor_out_formatter_data *fd = setup_out_fmt_data(msg);
+
+	if (!fd) {
+		LOG_ERR("Unable to complete SEND op, out of memory");
+		return -ENOMEM;
+	}
+
+	ret = lwm2m_perform_composite_read_op(msg, LWM2M_FORMAT_APP_SENML_CBOR, lwm2m_path_list);
+
+	clear_out_fmt_data(msg, fd);
+
+	return ret;
 }
