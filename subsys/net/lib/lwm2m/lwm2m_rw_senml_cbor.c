@@ -138,37 +138,6 @@ static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 	return 0;
 }
 
-static int put_name_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
-{
-	/* Get a handle to a structure which is used for tracking the encoding process */
-	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
-	int len;
-
-	if (fd->name_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
-		LOG_ERR("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
-		return -ENOMEM;
-	}
-
-	char *name = GET_CBOR_FD_NAME(fd);
-
-	/* Write resource name */
-	len = snprintk(name, sizeof("65535"), "%" PRIu16 "", path->res_id);
-
-	if (len < sizeof("0") - 1) {
-		__ASSERT_NO_MSG(false);
-		return -EINVAL;
-	}
-
-	/* Tell CBOR encoder where to find the name */
-	struct record *record = GET_CBOR_FD_REC(fd);
-
-	record->n.hndl.value = name;
-	record->n.hndl.len = len;
-	record->n_prsnt = 1;
-
-	return 0;
-}
-
 static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
 	size_t len;
@@ -179,9 +148,11 @@ static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path
 
 	if (ret) {
 		out->out_cpkt->offset += len;
+	} else {
+		LOG_ERR("unable to encode senml cbor msg");
 	}
 
-	return ret ? len : -EINVAL;
+	return ret ? len : -E2BIG;
 }
 
 static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
@@ -201,15 +172,48 @@ static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 static int put_begin_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
 {
 	struct cbor_out_formatter_data *fd = LWM2M_OFD_CBOR(out);
+	int len;
 
-	int ret = put_name_r(out, path);
+	if (fd->name_cnt >= CONFIG_LWM2M_RW_SENML_CBOR_RECORDS) {
+		LOG_ERR("CONFIG_LWM2M_RW_SENML_CBOR_RECORDS too small");
+		return -ENOMEM;
+	}
 
-	/* Will use the same name to in which to concatenate ri name */
-	if (path->level < LWM2M_PATH_LEVEL_RESOURCE_INST) {
+	char *name = GET_CBOR_FD_NAME(fd);
+
+	/* Write resource name */
+	len = snprintk(name, sizeof("65535"), "%" PRIu16 "", path->res_id);
+
+	if (len < sizeof("0") - 1) {
+		__ASSERT_NO_MSG(false);
+		return -EINVAL;
+	}
+
+	/* Check if we could use an already existing name
+	 * -> latest name slot is used as a scratchpad
+	 */
+	for (int idx = 0; idx < fd->name_cnt; idx++) {
+		if (strncmp(name, fd->names[idx], len) == 0) {
+			name = fd->names[idx];
+			break;
+		}
+	}
+
+	/* Tell CBOR encoder where to find the name */
+	struct record *record = GET_CBOR_FD_REC(fd);
+
+	record->n.hndl.value = name;
+	record->n.hndl.len = len;
+	record->n_prsnt = 1;
+
+	/* Makes possible to use same slot for storing r/ri name combination.
+	 * No need to increase the name count if an existing name has been used
+	 */
+	if (path->level < LWM2M_PATH_LEVEL_RESOURCE_INST && name == GET_CBOR_FD_NAME(fd)) {
 		fd->name_cnt++;
 	}
 
-	return ret;
+	return 0;
 }
 
 static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
@@ -233,12 +237,26 @@ static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 		return -EINVAL;
 	}
 
+	/* Check if we could use an already existing name
+	 * -> latest name slot is used as a scratchpad
+	 */
+	for (int idx = 0; idx < fd->name_cnt; idx++) {
+		if (strncmp(name, fd->names[idx], len) == 0) {
+			name = fd->names[idx];
+			break;
+		}
+	}
+
+
 	/* Tell CBOR encoder where to find the name */
 	record->n.hndl.value = name;
 	record->n.hndl.len = len;
 	record->n_prsnt = 1;
 
-	fd->name_cnt++;
+	/* No need to increase the name count if an existing name has been used */
+	if (name == GET_CBOR_FD_NAME(fd)) {
+		fd->name_cnt++;
+	}
 
 	return 0;
 }
