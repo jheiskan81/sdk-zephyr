@@ -1,259 +1,193 @@
 /*
- * Copyright (c) 2021 Nordic Semiconductor ASA
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-/*
- * Generated using cddl_gen version 0.3.99
- * https://github.com/NordicSemiconductor/cddl-gen
- * Generated with a default_max_qty of 3
+ * Generated using zcbor version 0.3.99
+ * https://github.com/NordicSemiconductor/zcbor
+ * Generated with a --default-max-qty of 99
  */
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include "zcbor_encode.h"
+#include "lwm2m_senml_cbor_encode.h"
 
-#include <sys/util.h>
+#if DEFAULT_MAX_QTY != 99
+#error "The type file was generated with a different default_max_qty than this file"
+#endif
 
-#include "cbor_encode.h"
-#include "lwm2m_senml_cbor.h"
-
-static bool encode_repeated_record_bn(cbor_state_t *state, const struct record_bn *input)
+static bool encode_repeated_record_bn(zcbor_state_t *state, const struct record_bn *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
-	int32_t tmp = -2;
-
-	bool tmp_result = ((((intx32_encode(state, (int32_t *)&tmp))) &&
-			    (tstrx_encode(state, (&(*input).hndl)))));
+	bool tmp_result = ((((zcbor_int32_put(state, (-2)))) &&
+			    (zcbor_tstr_encode(state, (&(*input)._record_bn)))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_repeated_record_bt(cbor_state_t *state, const struct record_bt *input)
+static bool encode_repeated_record_n(zcbor_state_t *state, const struct record_n *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
-	int32_t tmp = -3;
-
-	bool tmp_result = ((((intx32_encode(state, (int32_t *)&tmp))) &&
-			    (intx32_encode(state, (&(*input).val)))));
+	bool tmp_result = ((((zcbor_uint32_put(state, (0)))) &&
+			    (zcbor_tstr_encode(state, (&(*input)._record_n)))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_repeated_record_n(cbor_state_t *state, const struct record_n *input)
+static bool encode_numeric(zcbor_state_t *state, const struct numeric_ *input)
 {
-	cbor_print("%s\n", __func__);
-
-	uint32_t tmp = 0;
-
-	bool tmp_result = ((((uintx32_encode(state, (uint32_t *)&tmp))) &&
-			    (tstrx_encode(state, (&(*input).hndl)))));
-
-	if (!tmp_result)
-		cbor_trace();
-
-	return tmp_result;
-}
-
-static bool encode_repeated_record_t(cbor_state_t *state, const struct record_t *input)
-{
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
 	bool tmp_result =
-		((((uintx32_put(state, (6)))) && (intx32_encode(state, (&(*input).val)))));
+		(((((*input)._numeric_choice == _numeric_int) ?
+			   (((((*input)._numeric_int >= -9223372036854775807LL) &&
+			      ((*input)._numeric_int <= 9223372036854775807LL)) ||
+			     (zcbor_error(state, ZCBOR_ERR_WRONG_RANGE), false)) &&
+			    (zcbor_int64_encode(state, (&(*input)._numeric_int)))) :
+			   (((*input)._numeric_choice == _numeric_float) ?
+				    ((zcbor_float64_encode(state, (&(*input)._numeric_float)))) :
+				    false))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_repeated_record_union(cbor_state_t *state, const struct record_union_ *input)
+static bool encode_repeated_record_union(zcbor_state_t *state, const struct record_union_ *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
 	bool tmp_result =
-		(((((*input).choice == LSB_U_V) ?
-			   (((uintx32_put(state, (2)))) && (intx32_encode(state, (&(*input).v)))) :
-			   (((*input).choice == LSB_U_VS) ?
-				    (((uintx32_put(state, (3)))) &&
-				     (tstrx_encode(state, (&(*input).vs)))) :
-				    (((*input).choice == LSB_U_VB) ?
-					     (((uintx32_put(state, (4)))) &&
-					      (boolx_encode(state, (&(*input).vb)))) :
-					     (((*input).choice == LSB_U_VD) ?
-						      (((uintx32_put(state, (8)))) &&
-						       (bstrx_encode(state, (&(*input).vd)))) :
+		(((((*input)._record_union_choice == _union_v) ?
+			   (((zcbor_uint32_put(state, (2)))) &&
+			    (encode_numeric(state, (&(*input)._union_v)))) :
+			   (((*input)._record_union_choice == _union_vs) ?
+				    (((zcbor_uint32_put(state, (3)))) &&
+				     (zcbor_tstr_encode(state, (&(*input)._union_vs)))) :
+				    (((*input)._record_union_choice == _union_vb) ?
+					     (((zcbor_uint32_put(state, (4)))) &&
+					      (zcbor_bool_encode(state, (&(*input)._union_vb)))) :
+					     (((*input)._record_union_choice == _union_vd) ?
+						      (((zcbor_uint32_put(state, (8)))) &&
+						       (zcbor_bstr_encode(state,
+									  (&(*input)._union_vd)))) :
 						      false))))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_non_b_label(cbor_state_t *state, const struct non_b_label_ *input)
+static bool encode_value(zcbor_state_t *state, const struct value_ *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result =
-		(((((*input).choice == _non_b_label_tstr) ?
-			   ((tstrx_encode(state, (&(*input)._non_b_label_tstr)))) :
-			   (((*input).choice == _non_b_label_uint) ?
-				    ((uintx32_encode(state, (&(*input)._non_b_label_uint)))) :
-				    false))));
+	bool tmp_result = ((
+		(((*input)._value_choice == _value_tstr) ?
+			 ((zcbor_tstr_encode(state, (&(*input)._value_tstr)))) :
+			 (((*input)._value_choice == _value_bstr) ?
+				  ((zcbor_bstr_encode(state, (&(*input)._value_bstr)))) :
+				  (((*input)._value_choice == _value__numeric) ?
+					   ((encode_numeric(state, (&(*input)._value__numeric)))) :
+					   (((*input)._value_choice == _value_bool) ?
+						    ((zcbor_bool_encode(state,
+									(&(*input)._value_bool)))) :
+						    false))))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_b_label(cbor_state_t *state, const struct b_label_ *input)
+static bool encode_key_value_pair(zcbor_state_t *state, const struct key_value_pair *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = (((((*input).choice == _b_label_tstr) ?
-				     ((tstrx_encode(state, (&(*input)._b_label_tstr)))) :
-				     (((*input).choice == _b_label_nint) ?
-					      (((*input)._b_label_nint <= -1) &&
-					       (intx32_encode(state, (&(*input)._b_label_nint)))) :
-					      false))));
+	bool tmp_result = ((((zcbor_int32_encode(state, (&(*input)._key_value_pair_key)))) &&
+			    (encode_value(state, (&(*input)._key_value_pair)))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_label(cbor_state_t *state, const struct label_ *input)
-{
-	cbor_print("%s\n", __func__);
-
-	bool tmp_result =
-		(((((*input).choice == _label__non_b_label) ?
-			   ((encode_non_b_label(state, (&(*input)._label__non_b_label)))) :
-			   (((*input).choice == _label__b_label) ?
-				    ((encode_b_label(state, (&(*input)._label__b_label)))) :
-				    false))));
-
-	if (!tmp_result)
-		cbor_trace();
-
-	return tmp_result;
-}
-
-static bool encode_value(cbor_state_t *state, const struct value_ *input)
-{
-	cbor_print("%s\n", __func__);
-
-	bool tmp_result = (((
-		((*input).choice == _value_tstr) ?
-			((tstrx_encode(state, (&(*input)._value_tstr)))) :
-			(((*input).choice == _value_bstr) ?
-				 ((bstrx_encode(state, (&(*input)._value_bstr)))) :
-				 (((*input).choice == _value__numeric) ?
-					  ((intx32_encode(state, (&(*input)._value__numeric)))) :
-					  (((*input).choice == _value_bool) ?
-						((boolx_encode(state, (&(*input)._value_bool)))) :
-						false))))));
-
-	if (!tmp_result)
-		cbor_trace();
-
-	return tmp_result;
-}
-
-static bool encode_key_value_pair_label(cbor_state_t *state,
-					const struct key_value_pair_label *input)
-{
-	cbor_print("%s\n", __func__);
-
-	bool tmp_result = ((((encode_label(state, (&(*input).key)))) &&
-			    (encode_value(state, (&(*input).val)))));
-
-	if (!tmp_result)
-		cbor_trace();
-
-	return tmp_result;
-}
-
-static bool encode_repeated_record__key_value_pair(cbor_state_t *state,
+static bool encode_repeated_record__key_value_pair(zcbor_state_t *state,
 						   const struct record__key_value_pair *input)
 {
-	cbor_print("%s\n", __func__);
+	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = (((encode_key_value_pair_label(state, (&(*input).lbl)))));
+	bool tmp_result = (((encode_key_value_pair(state, (&(*input)._record__key_value_pair)))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_record(cbor_state_t *state, const struct record *input)
+static bool encode_record(zcbor_state_t *state, const struct record *input)
 {
-	cbor_print("%s\n", __func__);
-	bool int_res;
-	size_t max_records = ARRAY_SIZE(input->kvp);
+	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = ((
-		(map_start_encode(state, 8) &&
-		 (int_res =
-			  (present_encode(&((*input).bn_prsnt), (void *)encode_repeated_record_bn,
-					  state, (&(*input).bn)) &&
-			   present_encode(&((*input).bt_prsnt), (void *)encode_repeated_record_bt,
-					  state, (&(*input).bt)) &&
-			   present_encode(&((*input).n_prsnt), (void *)encode_repeated_record_n,
-					  state, (&(*input).n)) &&
-			   present_encode(&((*input).t_prsnt), (void *)encode_repeated_record_t,
-					  state, (&(*input).t)) &&
-			   present_encode(&((*input).u_prsnt), (void *)encode_repeated_record_union,
-					  state, (&(*input).u)) &&
-			   multi_encode(0, max_records, &(*input).kvp_cnt,
-					(void *)encode_repeated_record__key_value_pair, state,
-					(&(*input).kvp), sizeof(struct record__key_value_pair))),
-		  ((map_end_encode(state, 8)) && int_res)))));
+	bool tmp_result = (((zcbor_map_start_encode(state, 6) &&
+			     ((zcbor_present_encode(&((*input)._record_bn_present),
+						    (zcbor_encoder_t *)encode_repeated_record_bn,
+						    state, (&(*input)._record_bn)) &&
+			       zcbor_present_encode(&((*input)._record_n_present),
+						    (zcbor_encoder_t *)encode_repeated_record_n,
+						    state, (&(*input)._record_n)) &&
+			       zcbor_present_encode(&((*input)._record_union_present),
+						    (zcbor_encoder_t *)encode_repeated_record_union,
+						    state, (&(*input)._record_union)) &&
+			       zcbor_multi_encode_minmax(
+				       0, 3, &(*input)._record__key_value_pair_count,
+				       (zcbor_encoder_t *)encode_repeated_record__key_value_pair,
+				       state, (&(*input)._record__key_value_pair),
+				       sizeof(struct record__key_value_pair))) ||
+			      (zcbor_list_map_end_force_encode(state), false)) &&
+			     zcbor_map_end_encode(state, 6))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-static bool encode_lwm2m_senml(cbor_state_t *state, const struct lwm2m_senml *input)
+static bool encode_lwm2m_senml(zcbor_state_t *state, const struct lwm2m_senml *input)
 {
-	cbor_print("%s\n", __func__);
-	bool int_res;
-	size_t max_records = ARRAY_SIZE(input->recs);
+	zcbor_print("%s\r\n", __func__);
 
-	bool tmp_result = ((
-		(list_start_encode(state, max_records) &&
-		 (int_res = (multi_encode(1, max_records, &(*input).rec_cnt, (void *)encode_record,
-					  state, (&(*input).recs), sizeof(struct record))),
-		  ((list_end_encode(state, max_records)) && int_res)))));
+	bool tmp_result =
+		(((zcbor_list_start_encode(state, 99) &&
+		   ((zcbor_multi_encode_minmax(1, 99, &(*input)._lwm2m_senml__record_count,
+					       (zcbor_encoder_t *)encode_record, state,
+					       (&(*input)._lwm2m_senml__record),
+					       sizeof(struct record))) ||
+		    (zcbor_list_map_end_force_encode(state), false)) &&
+		   zcbor_list_end_encode(state, 99))));
 
 	if (!tmp_result)
-		cbor_trace();
+		zcbor_trace();
 
 	return tmp_result;
 }
 
-bool cbor_encode_lwm2m_senml(uint8_t *payload, uint32_t payload_len,
-			     const struct lwm2m_senml *input, uint32_t *payload_len_out)
+uint_fast8_t cbor_encode_lwm2m_senml(uint8_t *payload, size_t payload_len,
+				     const struct lwm2m_senml *input, size_t *payload_len_out)
 {
-	cbor_state_t states[7];
+	zcbor_state_t states[6];
 
-	new_state(states, sizeof(states) / sizeof(cbor_state_t), payload, payload_len, 1);
+	zcbor_new_state(states, sizeof(states) / sizeof(zcbor_state_t), payload, payload_len, 1);
 
 	bool ret = encode_lwm2m_senml(states, input);
 
@@ -261,5 +195,9 @@ bool cbor_encode_lwm2m_senml(uint8_t *payload, uint32_t payload_len,
 		*payload_len_out = MIN(payload_len, (size_t)states[0].payload - (size_t)payload);
 	}
 
-	return ret;
+	if (!ret) {
+		uint_fast8_t ret = zcbor_pop_error(states);
+		return (ret == ZCBOR_SUCCESS) ? ZCBOR_ERR_UNKNOWN : ret;
+	}
+	return ZCBOR_SUCCESS;
 }
