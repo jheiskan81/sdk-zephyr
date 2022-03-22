@@ -18,15 +18,16 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <ctype.h>
 #include <sys/util.h>
 
-#include <cbor_common.h>
-#include <cbor_decode.h>
-#include <cbor_encode.h>
+#include <zcbor_common.h>
+#include <zcbor_decode.h>
+#include <zcbor_encode.h>
 
+#include "lwm2m_engine.h"
 #include "lwm2m_object.h"
 #include "lwm2m_rw_senml_cbor.h"
-#include "lwm2m_rw_plain_text.h"
-#include "lwm2m_engine.h"
-#include "lwm2m_senml_cbor.h"
+#include "lwm2m_senml_cbor_decode.h"
+#include "lwm2m_senml_cbor_encode.h"
+#include "lwm2m_senml_cbor_types.h"
 #include "lwm2m_util.h"
 
 struct cbor_out_formatter_data {
@@ -50,11 +51,13 @@ struct cbor_in_fmt_data {
 
 #define GET_CBOR_FD_NAME(fd) ((fd)->names[(fd)->name_cnt])
 /* Get the current record */
-#define GET_CBOR_FD_REC(fd) &((fd)->input.recs[(fd)->input.rec_cnt])
+#define GET_CBOR_FD_REC(fd) \
+	&((fd)->input._lwm2m_senml__record[(fd)->input._lwm2m_senml__record_count])
 /* Get a record */
-#define GET_IN_FD_REC_I(fd, i) &((fd)->dcd.recs[i])
+#define GET_IN_FD_REC_I(fd, i) &((fd)->dcd._lwm2m_senml__record[i])
 /* Consume the current record */
-#define CONSUME_CBOR_FD_REC(fd) &((fd)->input.recs[(fd)->input.rec_cnt++])
+#define CONSUME_CBOR_FD_REC(fd) \
+	&((fd)->input._lwm2m_senml__record[(fd)->input._lwm2m_senml__record_count++])
 /* Get CBOR output formatter data */
 #define LWM2M_OFD_CBOR(octx) ((struct cbor_out_formatter_data *)engine_get_out_user_data(octx))
 
@@ -124,9 +127,9 @@ static int put_basename(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 	/* Tell CBOR encoder where to find the name */
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	record->bn.hndl.value = basename;
-	record->bn.hndl.len = len;
-	record->bn_prsnt = 1;
+	record->_record_bn._record_bn.value = basename;
+	record->_record_bn._record_bn.len = len;
+	record->_record_bn_present = 1;
 
 	if ((len < sizeof("0/0") - 1) || (len >= sizeof("65535/999"))) {
 		__ASSERT_NO_MSG(false);
@@ -142,17 +145,19 @@ static int put_end(struct lwm2m_output_context *out, struct lwm2m_obj_path *path
 {
 	size_t len;
 
-	bool ret =
+	uint_fast8_t ret =
 		cbor_encode_lwm2m_senml(CPKT_BUF_W_REGION(out->out_cpkt),
 					(struct lwm2m_senml *)&(LWM2M_OFD_CBOR(out)->input), &len);
 
-	if (ret) {
-		out->out_cpkt->offset += len;
-	} else {
+	if (ret != ZCBOR_SUCCESS) {
 		LOG_ERR("unable to encode senml cbor msg");
+
+		return -E2BIG;
 	}
 
-	return ret ? len : -E2BIG;
+	out->out_cpkt->offset += len;
+
+	return len;
 }
 
 static int put_begin_oi(struct lwm2m_output_context *out, struct lwm2m_obj_path *path)
@@ -202,9 +207,9 @@ static int put_begin_r(struct lwm2m_output_context *out, struct lwm2m_obj_path *
 	/* Tell CBOR encoder where to find the name */
 	struct record *record = GET_CBOR_FD_REC(fd);
 
-	record->n.hndl.value = name;
-	record->n.hndl.len = len;
-	record->n_prsnt = 1;
+	record->_record_n._record_n.value = name;
+	record->_record_n._record_n.len = len;
+	record->_record_n_present = 1;
 
 	/* Makes possible to use same slot for storing r/ri name combination.
 	 * No need to increase the name count if an existing name has been used
@@ -249,9 +254,9 @@ static int put_begin_ri(struct lwm2m_output_context *out, struct lwm2m_obj_path 
 
 
 	/* Tell CBOR encoder where to find the name */
-	record->n.hndl.value = name;
-	record->n.hndl.len = len;
-	record->n_prsnt = 1;
+	record->_record_n._record_n.value = name;
+	record->_record_n._record_n.len = len;
+	record->_record_n_present = 1;
 
 	/* No need to increase the name count if an existing name has been used */
 	if (name == GET_CBOR_FD_NAME(fd)) {
@@ -273,7 +278,7 @@ static int put_name_nth_ri(struct lwm2m_output_context *out, struct lwm2m_obj_pa
 	return ret;
 }
 
-static int put_value(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int32_t value)
+static int put_value(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int64_t value)
 {
 	int ret = put_name_nth_ri(out, path);
 
@@ -284,9 +289,10 @@ static int put_value(struct lwm2m_output_context *out, struct lwm2m_obj_path *pa
 	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
 
 	/* Write the value */
-	record->u.choice = LSB_U_V;
-	record->u.v = value;
-	record->u_prsnt = 1;
+	record->_record_union._record_union_choice = _union_v;
+	record->_record_union._union_v._numeric_choice = _numeric_int;
+	record->_record_union._union_v._numeric_int = value;
+	record->_record_union_present = 1;
 
 	return 0;
 }
@@ -308,13 +314,7 @@ static int put_s32(struct lwm2m_output_context *out, struct lwm2m_obj_path *path
 
 static int put_s64(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int64_t value)
 {
-	/* TODO: remove this check once the CBOR library supports 64-bit values */
-	if (value != (value & 0xFFFFFFFF)) {
-		LOG_WRN("64-bit values are not supported");
-		return -EINVAL;
-	}
-
-	return put_value(out, path, (uint32_t)value);
+	return put_value(out, path, value);
 }
 
 static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, int64_t value)
@@ -328,9 +328,29 @@ static int put_time(struct lwm2m_output_context *out, struct lwm2m_obj_path *pat
 	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
 
 	/* Write the value */
-	record->u.choice = LSB_U_V;
-	record->u.v = value;
-	record->u_prsnt = 1;
+	record->_record_union._record_union_choice = _union_v;
+	record->_record_union._union_v._numeric_choice = _numeric_int;
+	record->_record_union._union_v._numeric_int = value;
+	record->_record_union_present = 1;
+
+	return 0;
+}
+
+static int put_float(struct lwm2m_output_context *out, struct lwm2m_obj_path *path, double *value)
+{
+	int ret = put_name_nth_ri(out, path);
+
+	if (ret < 0) {
+		return ret;
+	}
+
+	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
+
+	/* Write the value */
+	record->_record_union._record_union_choice = _union_v;
+	record->_record_union._union_v._numeric_choice = _numeric_float;
+	record->_record_union._union_v._numeric_float = *value;
+	record->_record_union_present = 1;
 
 	return 0;
 }
@@ -347,10 +367,10 @@ static int put_string(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
 
 	/* Write the value */
-	record->u.choice = LSB_U_VS;
-	record->u.vs.value = buf;
-	record->u.vs.len = buflen;
-	record->u_prsnt = 1;
+	record->_record_union._record_union_choice = _union_vs;
+	record->_record_union._union_vs.value = buf;
+	record->_record_union._union_vs.len = buflen;
+	record->_record_union_present = 1;
 
 	return 0;
 }
@@ -366,9 +386,9 @@ static int put_bool(struct lwm2m_output_context *out, struct lwm2m_obj_path *pat
 	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
 
 	/* Write the value */
-	record->u.choice = LSB_U_VB;
-	record->u.vb = value;
-	record->u_prsnt = 1;
+	record->_record_union._record_union_choice = _union_vb;
+	record->_record_union._union_vb = value;
+	record->_record_union_present = 1;
 
 	return 0;
 }
@@ -385,10 +405,10 @@ static int put_opaque(struct lwm2m_output_context *out, struct lwm2m_obj_path *p
 	struct record *record = CONSUME_CBOR_FD_REC(LWM2M_OFD_CBOR(out));
 
 	/* Write the value */
-	record->u.choice = LSB_U_VD;
-	record->u.vd.value = buf;
-	record->u.vd.len = buflen;
-	record->u_prsnt = 1;
+	record->_record_union._record_union_choice = _union_vd;
+	record->_record_union._union_vd.value = buf;
+	record->_record_union._union_vd.len = buflen;
+	record->_record_union_present = 1;
 
 	return 0;
 }
@@ -420,8 +440,8 @@ static int get_opaque(struct lwm2m_input_context *in,
 		 * now plain zero
 		 */
 
-		opaque->len = fd->current->u.vd.len;
-		opaque->remaining = fd->current->u.vd.len;
+		opaque->len = fd->current->_record_union._union_vd.len;
+		opaque->remaining = fd->current->_record_union._union_vd.len;
 
 		fd->current = NULL;
 		goto NOT_SUPPORTED;
@@ -442,7 +462,7 @@ static int get_s32(struct lwm2m_input_context *in, int32_t *value)
 		return -EINVAL;
 	}
 
-	*value = fd->current->u.v;
+	*value = fd->current->_record_union._union_v._numeric_int;
 	fd->current = NULL;
 
 	return 0;
@@ -457,12 +477,26 @@ static int get_s64(struct lwm2m_input_context *in, int64_t *value)
 		return -EINVAL;
 	}
 
-	*value = fd->current->u.v;
+	*value = fd->current->_record_union._union_v._numeric_int;
 	fd->current = NULL;
 
 	return 0;
 }
 
+static int get_float(struct lwm2m_input_context *in, double *value)
+{
+	struct cbor_in_fmt_data *fd;
+
+	fd = engine_get_in_user_data(in);
+	if (!fd || !fd->current) {
+		return -EINVAL;
+	}
+
+	*value = fd->current->_record_union._union_v._numeric_float;
+	fd->current = NULL;
+
+	return 0;
+}
 
 static int get_string(struct lwm2m_input_context *in, uint8_t *buf, size_t buflen)
 {
@@ -474,9 +508,9 @@ static int get_string(struct lwm2m_input_context *in, uint8_t *buf, size_t bufle
 		return -EINVAL;
 	}
 
-	len = MIN(buflen-1, fd->current->u.vs.len);
+	len = MIN(buflen-1, fd->current->_record_union._union_vs.len);
 
-	memcpy(buf, fd->current->u.vs.value, len);
+	memcpy(buf, fd->current->_record_union._union_vs.value, len);
 	buf[len] = '\0';
 
 	fd->current = NULL;
@@ -542,7 +576,7 @@ static int get_bool(struct lwm2m_input_context *in, bool *value)
 		return -EINVAL;
 	}
 
-	*value = fd->current->u.vb;
+	*value = fd->current->_record_union._union_vb;
 	fd->current = NULL;
 
 	return 0;
@@ -564,12 +598,12 @@ static int do_write_op_item(struct lwm2m_message *msg, struct record *rec)
 	}
 
 	/* Composite op - name with basename */
-	if (rec->n_prsnt) {
+	if (rec->_record_n_present) {
 		char name[sizeof("65535/999")]; /* Null terminated name */
-		int len = MIN(sizeof(name) - 1, rec->n.hndl.len);
+		int len = MIN(sizeof(name) - 1, rec->_record_n._record_n.len);
 		char fqn[MAX_RESOURCE_LEN + 1] = {0};
 
-		snprintk(name, len + 1, "%s", rec->n.hndl.value);
+		snprintk(name, len + 1, "%s", rec->_record_n._record_n.value);
 
 		/* Form fully qualified path name */
 		snprintk(fqn, sizeof(fqn), "%s%s", fd->basename, name);
@@ -613,7 +647,7 @@ const struct lwm2m_writer senml_cbor_writer = {
 	.put_s64 = put_s64,
 	.put_time = put_time,
 	.put_string = put_string,
-	.put_float = NULL,
+	.put_float = put_float,
 	.put_bool = put_bool,
 	.put_opaque = put_opaque,
 	.put_objlnk = put_objlnk,
@@ -624,7 +658,7 @@ const struct lwm2m_reader senml_cbor_reader = {
 	.get_s64 = get_s64,
 	.get_time = get_s64,
 	.get_string = get_string,
-	.get_float = NULL,
+	.get_float = get_float,
 	.get_bool = get_bool,
 	.get_opaque = get_opaque,
 	.get_objlnk = get_objlnk,
@@ -657,7 +691,7 @@ static uint8_t parse_composite_read_paths(struct lwm2m_message *msg,
 	struct cbor_in_fmt_data *fd;
 	uint8_t paths = 0;
 	uint32_t isize;
-	bool decoded;
+	uint_fast8_t dret;
 	int len;
 	int ret;
 
@@ -668,38 +702,38 @@ static uint8_t parse_composite_read_paths(struct lwm2m_message *msg,
 		return -ENOMEM;
 	}
 
-	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_REGION(&msg->in), &fd->dcd, &isize);
+	dret = cbor_decode_lwm2m_senml(ICTX_BUF_R_REGION(&msg->in), &fd->dcd, &isize);
 
-	if (!decoded) {
+	if (dret != ZCBOR_SUCCESS) {
 		__ASSERT_NO_MSG(false);
 		goto out;
 	}
 
 	msg->in.offset += isize;
 
-	for (int idx = 0; idx < fd->dcd.rec_cnt; idx++) {
+	for (int idx = 0; idx < fd->dcd._lwm2m_senml__record_count; idx++) {
 
 		/* Where to find the basenames and names */
 		struct record *record = GET_IN_FD_REC_I(fd, idx);
 
 		/* Set null terminated effective basename */
-		if (record->bn_prsnt) {
-			len = MIN(sizeof(basename)-1, record->bn.hndl.len);
-			snprintk(basename, len + 1, "%s", record->bn.hndl.value);
+		if (record->_record_bn_present) {
+			len = MIN(sizeof(basename)-1, record->_record_bn._record_bn.len);
+			snprintk(basename, len + 1, "%s", record->_record_bn._record_bn.value);
 			basename[len] = '\0';
 		}
 
 		/* Best effort with read, skip if no proper name is available */
-		if (!record->n_prsnt) {
+		if (!record->_record_n_present) {
 			if (strcmp(basename, "") == 0) {
 				continue;
 			}
 		}
 
 		/* Set null terminated name */
-		if (record->n_prsnt) {
-			len = MIN(sizeof(name)-1, record->n.hndl.len);
-			snprintk(name, len + 1, "%s", record->n.hndl.value);
+		if (record->_record_n_present) {
+			len = MIN(sizeof(name)-1, record->_record_n._record_n.len);
+			snprintk(name, len + 1, "%s", record->_record_n._record_n.value);
 			name[len] = '\0';
 		}
 
@@ -768,7 +802,7 @@ int do_composite_read_op_senml_cbor(struct lwm2m_message *msg)
 
 int do_write_op_senml_cbor(struct lwm2m_message *msg)
 {
-	bool decoded;
+	uint_fast8_t dret;
 	int ret = 0;
 	uint32_t decoded_sz;
 	struct cbor_in_fmt_data *fd;
@@ -793,21 +827,23 @@ int do_write_op_senml_cbor(struct lwm2m_message *msg)
 		return -ENOMEM;
 	}
 
-	decoded = cbor_decode_lwm2m_senml(ICTX_BUF_R_PTR(&msg->in), ICTX_BUF_R_LEFT_SZ(&msg->in),
+	dret = cbor_decode_lwm2m_senml(ICTX_BUF_R_PTR(&msg->in), ICTX_BUF_R_LEFT_SZ(&msg->in),
 					   &fd->dcd, &decoded_sz);
 
-	if (decoded) {
+	if (dret == ZCBOR_SUCCESS) {
 		msg->in.offset += decoded_sz;
 
-		for (int idx = 0; idx < fd->dcd.rec_cnt; idx++) {
+		for (int idx = 0; idx < fd->dcd._lwm2m_senml__record_count; idx++) {
 
-			struct record *rec = &fd->dcd.recs[idx];
+			struct record *rec = &fd->dcd._lwm2m_senml__record[idx];
 
 			/* Basename applies for current and succeeding records */
-			if (rec->bn_prsnt) {
-				int len = MIN(sizeof(fd->basename) - 1, rec->bn.hndl.len);
+			if (rec->_record_bn_present) {
+				int len = MIN(sizeof(fd->basename) - 1,
+					      rec->_record_bn._record_bn.len);
 
-				snprintk(fd->basename, len + 1, "%s", rec->bn.hndl.value);
+				snprintk(fd->basename, len + 1, "%s",
+					 rec->_record_bn._record_bn.value);
 			}
 
 			ret = do_write_op_item(msg, rec);
