@@ -5656,8 +5656,9 @@ static int load_tls_credential(struct lwm2m_ctx *client_ctx, uint16_t res_id,
 int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 {
 	int flags;
-#if defined(CONFIG_LWM2M_DTLS_SUPPORT)
 	int ret;
+
+#if defined(CONFIG_LWM2M_DTLS_SUPPORT)
 	uint8_t tmp;
 
 	if (client_ctx->load_credentials) {
@@ -5701,10 +5702,9 @@ int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 		ret = setsockopt(client_ctx->sock_fd, SOL_TLS, TLS_SEC_TAG_LIST,
 				 tls_tag_list, sizeof(tls_tag_list));
 		if (ret < 0) {
-			LOG_ERR("Failed to set TLS_SEC_TAG_LIST option: %d",
-				errno);
-			lwm2m_engine_context_close(client_ctx);
-			return -errno;
+			ret = -errno;
+			LOG_ERR("Failed to set TLS_SEC_TAG_LIST option: %d", ret);
+			goto error;
 		}
 
 		if (client_ctx->desthostname != NULL) {
@@ -5721,8 +5721,9 @@ int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 			/** restore character */
 			client_ctx->desthostname[client_ctx->desthostnamelen] = tmp;
 			if (ret < 0) {
-				LOG_ERR("Failed to set TLS_HOSTNAME option: %d", errno);
-				return -errno;
+				ret = -errno;
+				LOG_ERR("Failed to set TLS_HOSTNAME option: %d", ret);
+				goto error;
 			}
 		}
 	}
@@ -5730,18 +5731,31 @@ int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 
 	if (connect(client_ctx->sock_fd, &client_ctx->remote_addr,
 		    NET_SOCKADDR_MAX_SIZE) < 0) {
-		LOG_ERR("Cannot connect UDP (-%d)", errno);
-		lwm2m_engine_context_close(client_ctx);
-		return -errno;
+		ret = -errno;
+		LOG_ERR("Cannot connect UDP (%d)", ret);
+		goto error;
 	}
 
 	flags = fcntl(client_ctx->sock_fd, F_GETFL, 0);
 	if (flags == -1) {
-		return -errno;
+		ret = -errno;
+		LOG_ERR("fcntl(F_GETFL) failed (%d)", ret);
+		goto error;
 	}
-	fcntl(client_ctx->sock_fd, F_SETFL, flags | O_NONBLOCK);
+	ret = fcntl(client_ctx->sock_fd, F_SETFL, flags | O_NONBLOCK);
+	if (ret == -1) {
+		ret = -errno;
+		LOG_ERR("fcntl(F_SETFL) failed (%d)", ret);
+		goto error;
+	}
+
+	LOG_INF("Connected, sock id %d", client_ctx->sock_fd);
 
 	return lwm2m_socket_add(client_ctx);
+
+error:
+	lwm2m_engine_context_close(client_ctx);
+	return ret;
 }
 
 int lwm2m_parse_peerinfo(char *url, struct lwm2m_ctx *client_ctx, bool is_firmware_uri)
