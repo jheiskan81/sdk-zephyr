@@ -6296,8 +6296,9 @@ int lwm2m_engine_send(struct lwm2m_ctx *ctx, char const *path_list[], uint8_t pa
 		return -E2BIG;
 	}
 
-	/* Select content format use CBOR when it possible */
-	if (IS_ENABLED(CONFIG_LWM2M_RW_SENML_JSON_SUPPORT)) {
+	if (IS_ENABLED(CONFIG_LWM2M_RW_SENML_CBOR_SUPPORT)) {
+		content_format = LWM2M_FORMAT_APP_SENML_CBOR;
+	} else if (IS_ENABLED(CONFIG_LWM2M_RW_SENML_JSON_SUPPORT)) {
 		content_format = LWM2M_FORMAT_APP_SEML_JSON;
 	} else {
 		LOG_WRN("SenML CBOR or JSON is not supported");
