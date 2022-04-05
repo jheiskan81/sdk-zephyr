@@ -29,6 +29,9 @@ config LWM2M_VERSION_1_0
 config LWM2M_VERSION_1_1
 	bool "LwM2M version 1.1 [EXPERIMENTAL]"
 	select EXPERIMENTAL
+	imply LWM2M_RW_SENML_CBOR_SUPPORT
+	imply ZCBOR
+	imply ZCBOR_CANONICAL
 
 endchoice
 
