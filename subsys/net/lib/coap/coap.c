@@ -1147,7 +1147,13 @@ struct coap_pending *coap_pending_next_unused(
 	size_t i;
 
 	for (i = 0, p = pendings; i < len; i++, p++) {
-		if (p->timeout == 0) {
+		/*
+		 * Using data pointer for detecting free is more stable than timeout.
+		 * Timeout is initialized only before first socket send. Queued packet
+		 * may be triggered later than other and may cause that same block is allocated
+		 * multiple time.
+		 */
+		if (p->data == 0) {
 			return p;
 		}
 	}
