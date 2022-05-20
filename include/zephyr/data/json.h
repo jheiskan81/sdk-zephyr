@@ -48,12 +48,38 @@ enum json_tokens {
 	JSON_TOK_COLON = ':',
 	JSON_TOK_COMMA = ',',
 	JSON_TOK_NUMBER = '0',
+	JSON_TOK_FLOAT = '1',
+	JSON_TOK_OPAQUE = '2',
 	JSON_TOK_TRUE = 't',
 	JSON_TOK_FALSE = 'f',
 	JSON_TOK_NULL = 'n',
 	JSON_TOK_ERROR = '!',
 	JSON_TOK_EOF = '\0',
 };
+
+struct token {
+	enum json_tokens type;
+	char *start;
+	char *end;
+};
+
+struct lexer {
+	void *(*state)(struct lexer *lex);
+	char *start;
+	char *pos;
+	char *end;
+	struct token tok;
+};
+
+struct json_obj {
+	struct lexer lex;
+};
+
+struct json_obj_token {
+	char *start;
+	size_t length;
+};
+
 
 struct json_obj_descr {
 	const char *field_name;
@@ -595,6 +621,38 @@ int json_obj_parse(char *json, size_t len,
  */
 int json_arr_parse(char *json, size_t len,
 	const struct json_obj_descr *descr, void *val);
+
+
+/**
+ * @brief Initialized JSON-encoded array data to @a json class for single object parsing by @a payload, with
+ * size @a len
+ *
+ * Function validate that Json Array start is detetcted and initialice @a json object for Json object parsin sperately.
+ *
+ * @param json Pointer to JSON-object class for future using by parsing object
+ * @param payload Pointer to JSON-encoded array to be parsed
+ * @param len Length of JSON-encoded array
+ *
+ * @return 0 if array start is detected
+ * indicates an error (as defined on errno.h).
+ */
+int json_arr_separate_object_parse_init(struct json_obj * json, char *payload, size_t len);
+
+/**
+ * @brief Parses the JSON-encoded object pointed to by @a json object array, with
+ * size @a len, according to the descriptor pointed to by @a descr.
+ * Values are stored in a struct pointed to by @a val
+ *
+ * @param json Pointer to JSON-object message state
+ * @param descr Pointer to the descriptor array
+ * @param descr_len Number of elements in the descriptor array. Must be less
+ * @param val Pointer to the struct to hold the decoded values
+ *
+ *  @return < 0 if error, 0 for end of message, bitmap of decoded fields on success (bit 0
+ * is set if first field in the descriptor has been properly decoded, etc).
+ */
+int json_arr_separate_parse_object(struct json_obj *json, const struct json_obj_descr *descr,
+				   size_t descr_len, void *val);
 
 /**
  * @brief Escapes the string so it can be used to encode JSON objects

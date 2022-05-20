@@ -17,24 +17,6 @@
 
 #include <data/json.h>
 
-struct token {
-	enum json_tokens type;
-	char *start;
-	char *end;
-};
-
-struct lexer {
-	void *(*state)(struct lexer *lex);
-	char *start;
-	char *pos;
-	char *end;
-	struct token tok;
-};
-
-struct json_obj {
-	struct lexer lex;
-};
-
 struct json_obj_key_value {
 	const char *key;
 	size_t key_len;
@@ -326,6 +308,8 @@ static int element_token(enum json_tokens token)
 	case JSON_TOK_ARRAY_START:
 	case JSON_TOK_STRING:
 	case JSON_TOK_NUMBER:
+	case JSON_TOK_FLOAT:
+	case JSON_TOK_OPAQUE:
 	case JSON_TOK_TRUE:
 	case JSON_TOK_FALSE:
 		return 0;
@@ -438,6 +422,14 @@ static bool equivalent_types(enum json_tokens type1, enum json_tokens type2)
 		return type2 == JSON_TOK_TRUE || type2 == JSON_TOK_FALSE;
 	}
 
+	if (type1 == JSON_TOK_NUMBER && type2 == JSON_TOK_FLOAT) {
+		return true;
+	}
+
+	if (type1 == JSON_TOK_STRING && type2 == JSON_TOK_OPAQUE) {
+		return true;
+	}
+
 	return type1 == type2;
 }
 
@@ -478,6 +470,13 @@ static int decode_value(struct json_obj *obj,
 
 		return decode_num(value, num);
 	}
+	case JSON_TOK_OPAQUE:
+	case JSON_TOK_FLOAT: {
+		struct json_obj_token *token = field;
+		token->start = value->start;
+		token->length = value->end - value->start;
+		return 0;
+	}
 	case JSON_TOK_STRING: {
 		char **str = field;
 
@@ -496,6 +495,9 @@ static ptrdiff_t get_elem_size(const struct json_obj_descr *descr)
 	switch (descr->type) {
 	case JSON_TOK_NUMBER:
 		return sizeof(int32_t);
+	case JSON_TOK_OPAQUE:
+	case JSON_TOK_FLOAT:
+		return sizeof(struct json_obj_token);
 	case JSON_TOK_STRING:
 		return sizeof(char *);
 	case JSON_TOK_TRUE:
@@ -639,6 +641,37 @@ int json_arr_parse(char *payload, size_t len,
 
 	return arr_parse(&arr, descr->array.element_descr,
 			 descr->array.n_elements, ptr, val);
+}
+
+
+int json_arr_separate_object_parse_init(struct json_obj * json, char *payload, size_t len)
+{
+	return arr_init(json, payload, len);
+}
+
+int json_arr_separate_parse_object(struct json_obj *json, const struct json_obj_descr *descr,
+			  size_t descr_len, void *val)
+{
+	struct token tok;
+
+	if (!lexer_next(&json->lex, &tok)) {
+		return -EINVAL;
+	}
+
+	if (tok.type == JSON_TOK_ARRAY_END) {
+		//End of array
+		return 0;
+	} else if (tok.type == JSON_TOK_COMMA) {
+		if (!lexer_next(&json->lex, &tok)) {
+			return -EINVAL;
+		}
+	}
+
+	if (tok.type != JSON_TOK_OBJECT_START) {
+		return -EINVAL;
+	}
+
+	return obj_parse(json, descr, descr_len, val);
 }
 
 static char escape_as(char chr)
@@ -832,6 +865,31 @@ static int num_encode(const int32_t *num, json_append_bytes_t append_bytes,
 	return append_bytes(buf, (size_t)ret, data);
 }
 
+static int float_ascii_encode(struct json_obj_token *num, json_append_bytes_t append_bytes,
+		      void *data)
+{
+
+	return append_bytes(num->start, num->length, data);
+}
+
+static int opaque_string_encode(struct json_obj_token *opaque, json_append_bytes_t append_bytes,
+		      void *data)
+{
+	int ret;
+
+	ret = append_bytes("\"", 1, data);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = append_bytes(opaque->start, opaque->length, data);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return append_bytes("\"", 1, data);
+}
+
 static int bool_encode(const bool *value, json_append_bytes_t append_bytes,
 		       void *data)
 {
@@ -862,6 +920,10 @@ static int encode(const struct json_obj_descr *descr, const void *val,
 				       ptr, append_bytes, data);
 	case JSON_TOK_NUMBER:
 		return num_encode(ptr, append_bytes, data);
+	case JSON_TOK_FLOAT:
+		return float_ascii_encode(ptr, append_bytes, data);
+	case JSON_TOK_OPAQUE:
+		return opaque_string_encode(ptr, append_bytes, data);
 	default:
 		return -EINVAL;
 	}
