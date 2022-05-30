@@ -50,6 +50,7 @@ enum json_tokens {
 	JSON_TOK_NUMBER = '0',
 	JSON_TOK_FLOAT = '1',
 	JSON_TOK_OPAQUE = '2',
+	JSON_TOK_OBJ_ARRAY = '3',
 	JSON_TOK_TRUE = 't',
 	JSON_TOK_FALSE = 'f',
 	JSON_TOK_NULL = 'n',

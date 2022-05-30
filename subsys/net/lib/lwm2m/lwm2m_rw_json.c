@@ -68,6 +68,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <stdint.h>
 #include <inttypes.h>
 #include <ctype.h>
+#include <data/json.h>
 
 #include "lwm2m_object.h"
 #include "lwm2m_rw_json.h"
@@ -90,6 +91,52 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #define MODE_READY     3
 
 #define TOKEN_BUF_LEN	64
+
+/* Decode payload structure */
+struct json_main_struct {
+	const char *base_name;
+	struct json_obj_token obj_array;
+};
+
+/* Decode description structure for parsing LwM2m JSON main object*/
+static const struct json_obj_descr json_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_main_struct, "bn",
+				  base_name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_main_struct, "e",
+				  obj_array, JSON_TOK_OBJ_ARRAY),
+};
+
+#define JSON_BN_TYPE 	1
+#define JSON_E_TYPE 	2
+
+/* Decode payload structure */
+struct json_obj_struct {
+	const char *name;
+	char *val_object_link;
+	const char *val_string;
+	struct json_obj_token val_float;
+	bool val_bool;
+};
+
+/* Decode description structure for parsing LwM2m JSON Arrary object*/
+static const struct json_obj_descr json_obj_descr[] = {
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_obj_struct, "n",
+				  name, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_obj_struct, "v",
+				  val_float, JSON_TOK_FLOAT),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_obj_struct, "bv",
+				  val_bool, JSON_TOK_TRUE),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_obj_struct, "ov",
+				  val_object_link, JSON_TOK_STRING),
+	JSON_OBJ_DESCR_PRIM_NAMED(struct json_obj_struct, "sv",
+				  val_string, JSON_TOK_STRING),
+};
+
+#define JSON_N_TYPE 	1
+#define	JSON_V_TYPE 	2
+#define	JSON_BV_TYPE 	4
+#define	JSON_OV_TYPE 	8
+#define	JSON_SV_TYPE 	16
 
 struct json_out_formatter_data {
 	/* offset position storage */
@@ -866,7 +913,11 @@ int do_write_op_json(struct lwm2m_message *msg)
 	struct lwm2m_engine_res_inst *res_inst = NULL;
 	struct lwm2m_obj_path orig_path;
 	struct json_in_formatter_data fd;
-	int ret = 0;
+
+	struct json_main_struct main_object;
+	char *data_ptr;
+	uint16_t in_len;
+	int ret = 0, obj_bit_field;
 	uint8_t value[TOKEN_BUF_LEN];
 	uint8_t base_name[MAX_RESOURCE_LEN];
 	uint8_t full_name[MAX_RESOURCE_LEN];
@@ -874,6 +925,20 @@ int do_write_op_json(struct lwm2m_message *msg)
 
 	(void)memset(&fd, 0, sizeof(fd));
 	engine_set_in_user_data(&msg->in, &fd);
+
+	data_ptr = (char *)coap_packet_get_payload(msg->in.in_cpkt, &in_len);
+
+	obj_bit_field =
+		json_obj_parse(data_ptr, in_len, json_descr, ARRAY_SIZE(json_descr), &main_object);
+
+	LOG_ERR("JSON object bits %d", obj_bit_field);
+	if (obj_bit_field & 1) {
+		LOG_ERR("BN:%s", main_object.base_name);
+	}
+
+	if (obj_bit_field & 2) {
+		LOG_ERR("E:[%d len]", main_object.obj_array.length);
+	}
 
 	/* store a copy of the original path */
 	memcpy(&orig_path, &msg->path, sizeof(msg->path));

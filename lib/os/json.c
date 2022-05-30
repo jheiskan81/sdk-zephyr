@@ -15,6 +15,12 @@
 #include <string.h>
 #include <zephyr/types.h>
 
+#define LOG_MODULE_NAME json
+#define LOG_LEVEL CONFIG_LWM2M_LOG_LEVEL
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER(LOG_MODULE_NAME);
+
 #include <data/json.h>
 
 struct json_obj_key_value {
@@ -310,10 +316,12 @@ static int element_token(enum json_tokens token)
 	case JSON_TOK_NUMBER:
 	case JSON_TOK_FLOAT:
 	case JSON_TOK_OPAQUE:
+	case JSON_TOK_OBJ_ARRAY:
 	case JSON_TOK_TRUE:
 	case JSON_TOK_FALSE:
 		return 0;
 	default:
+		LOG_ERR("token ignored %d", token);
 		return -EINVAL;
 	}
 }
@@ -373,6 +381,7 @@ static int obj_next(struct json_obj *json,
 static int arr_next(struct json_obj *json, struct token *value)
 {
 	if (!lexer_next(&json->lex, value)) {
+		LOG_ERR("Lexer next!!");
 		return -EINVAL;
 	}
 
@@ -382,6 +391,7 @@ static int arr_next(struct json_obj *json, struct token *value)
 
 	if (value->type == JSON_TOK_COMMA) {
 		if (!lexer_next(&json->lex, value)) {
+			LOG_ERR("lexer next!!");
 			return -EINVAL;
 		}
 	}
@@ -430,6 +440,10 @@ static bool equivalent_types(enum json_tokens type1, enum json_tokens type2)
 		return true;
 	}
 
+	if (type1 == JSON_TOK_ARRAY_START && type2 == JSON_TOK_OBJ_ARRAY) {
+		return true;
+	}
+
 	return type1 == type2;
 }
 
@@ -440,12 +454,15 @@ static int arr_parse(struct json_obj *obj,
 		     const struct json_obj_descr *elem_descr,
 		     size_t max_elements, void *field, void *val);
 
+static int arr_data_parse(struct json_obj *obj, struct json_obj_token *val);
+
 static int decode_value(struct json_obj *obj,
 			const struct json_obj_descr *descr,
 			struct token *value, void *field, void *val)
 {
 
 	if (!equivalent_types(value->type, descr->type)) {
+		LOG_ERR("No accepted value for decode");
 		return -EINVAL;
 	}
 
@@ -457,6 +474,14 @@ static int decode_value(struct json_obj *obj,
 	case JSON_TOK_ARRAY_START:
 		return arr_parse(obj, descr->array.element_descr,
 				 descr->array.n_elements, field, val);
+	case JSON_TOK_OBJ_ARRAY: {
+		struct json_obj_token *obj_token = field;
+		LOG_ERR("Start Parse array");
+		obj_token->start = value->start;
+		obj_token->length = 0;
+		return arr_data_parse(obj, obj_token);
+	}
+
 	case JSON_TOK_FALSE:
 	case JSON_TOK_TRUE: {
 		bool *v = field;
@@ -472,9 +497,9 @@ static int decode_value(struct json_obj *obj,
 	}
 	case JSON_TOK_OPAQUE:
 	case JSON_TOK_FLOAT: {
-		struct json_obj_token *token = field;
-		token->start = value->start;
-		token->length = value->end - value->start;
+		struct json_obj_token *obj_token = field;
+		obj_token->start = value->start;
+		obj_token->length = value->end - value->start;
 		return 0;
 	}
 	case JSON_TOK_STRING: {
@@ -497,6 +522,7 @@ static ptrdiff_t get_elem_size(const struct json_obj_descr *descr)
 		return sizeof(int32_t);
 	case JSON_TOK_OPAQUE:
 	case JSON_TOK_FLOAT:
+	case JSON_TOK_OBJ_ARRAY:
 		return sizeof(struct json_obj_token);
 	case JSON_TOK_STRING:
 		return sizeof(char *);
@@ -563,6 +589,34 @@ static int arr_parse(struct json_obj *obj,
 	return -EINVAL;
 }
 
+static int arr_data_parse(struct json_obj *obj,
+		     struct json_obj_token *val)
+{
+	struct token value;
+
+	/* Init length to zero */
+	val->length = 0;
+
+	while (!arr_next(obj, &value)) {
+		LOG_ERR("token type %d", value.type );
+		if (value.type == JSON_TOK_ARRAY_END) {
+			LOG_ERR("Array end detected");
+			/* Set array data length */
+			val->length = value.start - val->start;
+			return 0;
+		}
+
+	}
+	if (value.type == JSON_TOK_ARRAY_END) {
+			LOG_ERR("Array end detected");
+			/* Set array data length */
+			val->length = value.start - val->start;
+			return 0;
+		}
+	LOG_ERR("Not valid  Array missing end");
+	return -EINVAL;
+}
+
 static int obj_parse(struct json_obj *obj, const struct json_obj_descr *descr,
 		     size_t descr_len, void *val)
 {
@@ -600,7 +654,7 @@ static int obj_parse(struct json_obj *obj, const struct json_obj_descr *descr,
 			if (ret < 0) {
 				return ret;
 			}
-
+			LOG_ERR("%d correct", i);
 			decoded_fields |= 1<<i;
 			break;
 		}
@@ -620,6 +674,7 @@ int json_obj_parse(char *payload, size_t len,
 
 	ret = obj_init(&obj, payload, len);
 	if (ret < 0) {
+		LOG_ERR("obj init fail");
 		return ret;
 	}
 
