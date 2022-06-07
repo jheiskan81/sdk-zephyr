@@ -22,6 +22,9 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 	"Paths are inserted without leading '/'\n" \
 	"Root-level operation is unsupported"
 
+#define LWM2M_HELP_PAUSE "LwM2M engine thread pause"
+#define LWM2M_HELP_RESUME "LwM2M engine thread resume"
+
 static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 {
 	int ret = 0;
@@ -71,9 +74,38 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+
+static int cmd_pause(const struct shell *sh, size_t argc, char **argv)
+{
+	struct lwm2m_ctx *ctx = lwm2m_rd_client_ctx();
+
+	if (!ctx) {
+		shell_error(sh, "no lwm2m context yet\n");
+		return -ENOEXEC;
+	}
+
+	return lwm2m_rd_client_pause(ctx);
+}
+
+static int cmd_resume(const struct shell *sh, size_t argc, char **argv)
+{
+	struct lwm2m_ctx *ctx = lwm2m_rd_client_ctx();
+
+	if (!ctx) {
+		shell_error(sh, "no lwm2m context yet\n");
+		return -ENOEXEC;
+	}
+
+	return lwm2m_rd_client_resume(ctx);
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_lwm2m,
 			       SHELL_COND_CMD_ARG(CONFIG_LWM2M_VERSION_1_1, send, NULL,
 						  LWM2M_HELP_SEND, cmd_send, 1, 9),
+				   SHELL_COND_CMD_ARG(CONFIG_LWM2M_VERSION_1_1, pause, NULL,
+						  LWM2M_HELP_PAUSE, cmd_pause, 1, 0),
+				   SHELL_COND_CMD_ARG(CONFIG_LWM2M_VERSION_1_1, resume, NULL,
+						  LWM2M_HELP_RESUME, cmd_resume, 1, 0),
 			       SHELL_SUBCMD_SET_END);
 
 SHELL_COND_CMD_ARG_REGISTER(CONFIG_LWM2M_SHELL, lwm2m, &sub_lwm2m, LWM2M_HELP_CMD, NULL, 1, 0);
