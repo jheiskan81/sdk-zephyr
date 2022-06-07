@@ -154,13 +154,13 @@ struct lwm2m_ctx {
 	 */
 	bool use_dtls;
 
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
 	/**
 	 * Flag to indicate that the socket connection is suspended.
 	 * With queue mode, this will tell if there is a need to reconnect.
 	 */
 	bool connection_suspended;
-
+	
+#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
 	/**
 	 * Flag to indicate that the client is buffering Notifications and Send messages.
 	 * True value buffer Notifications and Send messages.
@@ -1204,6 +1204,9 @@ int lwm2m_rd_client_start(struct lwm2m_ctx *client_ctx, const char *ep_name,
  */
 int lwm2m_rd_client_stop(struct lwm2m_ctx *client_ctx,
 			  lwm2m_ctx_event_cb_t event_cb, bool deregister);
+
+int lwm2m_rd_client_pause(struct lwm2m_ctx *client_ctx);
+int lwm2m_rd_client_resume(struct lwm2m_ctx *client_ctx);
 
 /**
  * @brief Trigger a Registration Update of the LwM2M RD Client

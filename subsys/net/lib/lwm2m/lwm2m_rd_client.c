@@ -55,9 +55,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <errno.h>
 #include <init.h>
 #include <sys/printk.h>
+#include <net/socket.h>
 
 #include "lwm2m_object.h"
 #include "lwm2m_engine.h"
+#include "lwm2m_rd_client.h"
 #include "lwm2m_rw_link_format.h"
 
 #define LWM2M_RD_CLIENT_URI "rd"
@@ -92,6 +94,7 @@ enum sm_engine_state {
 	ENGINE_REGISTRATION_DONE,
 	ENGINE_REGISTRATION_DONE_RX_OFF,
 	ENGINE_UPDATE_SENT,
+	ENGINE_SUSPEND,
 	ENGINE_DEREGISTER,
 	ENGINE_DEREGISTER_SENT,
 	ENGINE_DEREGISTERED,
@@ -118,6 +121,7 @@ struct lwm2m_rd_client_info {
 
 	bool trigger_update : 1;
 	bool update_objects : 1;
+	bool suspend_thread : 1;
 } client;
 
 /* Allocate some data for queries and updates. Make sure it's large enough to
@@ -126,6 +130,7 @@ struct lwm2m_rd_client_info {
  * documented in the LwM2M specification.
  */
 static char query_buffer[MAX(32, sizeof("ep=") + CLIENT_EP_LEN)];
+static enum sm_engine_state suspended_client_state;
 
 void engine_update_tx_time(void)
 {
@@ -148,20 +153,13 @@ static void set_sm_state(uint8_t sm_state)
 	if (client.engine_state == ENGINE_UPDATE_SENT &&
 	    (sm_state == ENGINE_REGISTRATION_DONE ||
 	     sm_state == ENGINE_REGISTRATION_DONE_RX_OFF)) {
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
 		lwm2m_push_queued_buffers(client.ctx);
-#endif
 		event = LWM2M_RD_CLIENT_EVENT_REG_UPDATE_COMPLETE;
 	} else if (sm_state == ENGINE_REGISTRATION_DONE) {
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
 		lwm2m_push_queued_buffers(client.ctx);
-#endif
 		event = LWM2M_RD_CLIENT_EVENT_REGISTRATION_COMPLETE;
 	} else if (sm_state == ENGINE_REGISTRATION_DONE_RX_OFF) {
 		event = LWM2M_RD_CLIENT_EVENT_QUEUE_MODE_RX_OFF;
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
-		lwm2m_engine_close_socket_connection(client.ctx);
-#endif
 	} else if ((sm_state == ENGINE_INIT ||
 		    sm_state == ENGINE_DEREGISTERED) &&
 		   (client.engine_state >= ENGINE_DO_REGISTRATION &&
@@ -183,6 +181,11 @@ static void set_sm_state(uint8_t sm_state)
 
 	if (event > LWM2M_RD_CLIENT_EVENT_NONE && client.event_cb) {
 		client.event_cb(client.ctx, event);
+	}
+
+	/* Suspend socket after Event callback */
+	if (event == LWM2M_RD_CLIENT_EVENT_QUEUE_MODE_RX_OFF) {
+		lwm2m_close_socket(client.ctx);
 	}
 }
 
@@ -596,6 +599,7 @@ static int sm_do_init(void)
 	client.ctx->sec_obj_inst = -1;
 	client.ctx->srv_obj_inst = -1;
 	client.trigger_update = false;
+	client.suspend_thread = false;
 	client.lifetime = 0U;
 	client.retries = 0U;
 
@@ -963,7 +967,7 @@ static int sm_registration_done(void)
 		update_objects = client.update_objects;
 		client.trigger_update = false;
 		client.update_objects = false;
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
+
 		ret = lwm2m_engine_connection_resume(client.ctx);
 		if (ret) {
 			lwm2m_engine_context_close(client.ctx);
@@ -971,7 +975,6 @@ static int sm_registration_done(void)
 			set_sm_state(ENGINE_DO_REGISTRATION);
 			return ret;
 		}
-#endif
 
 		ret = sm_send_registration(update_objects,
 					   do_update_reply_cb,
@@ -1073,6 +1076,43 @@ static void lwm2m_rd_client_service(struct k_work *work)
 	k_mutex_lock(&client.mutex, K_FOREVER);
 
 	if (client.ctx) {
+		if (client.suspend_thread) {
+			int ret;
+			enum lwm2m_rd_client_event event = LWM2M_RD_CLIENT_EVENT_QUEUE_MODE_RX_OFF;
+
+			LOG_ERR("Suspend client thread");
+			if (!client.ctx->connection_suspended && client.event_cb) {
+				client.event_cb(client.ctx, event);
+			}
+			lwm2m_close_socket(client.ctx);
+			suspended_client_state = get_sm_state();
+			client.engine_state = ENGINE_SUSPEND;
+			client.suspend_thread = false;
+			k_mutex_unlock(&client.mutex);
+			while(get_sm_state() == ENGINE_SUSPEND) {
+				k_sleep(K_MSEC(STATE_MACHINE_UPDATE_INTERVAL_MS / 2));
+			}
+
+			/* Start resume process */
+			k_mutex_lock(&client.mutex, K_FOREVER);
+			LOG_ERR("Resume Client");
+			
+			if (!sm_is_registered() ||
+			    (sm_is_registered() &&
+			     (client.lifetime <= (k_uptime_get() - client.last_update) / 1000))) {
+				client.engine_state = ENGINE_DO_REGISTRATION;
+			} else {
+				lwm2m_rd_client_connection_resume(client.ctx);
+				client.trigger_update = true;
+			}
+
+			ret = lwm2m_open_socket(client.ctx);
+			if (ret) {
+				LOG_ERR("Socket Open Fail");
+				client.engine_state = ENGINE_INIT;
+			}
+		}
+
 		switch (get_sm_state()) {
 		case ENGINE_IDLE:
 			if (client.ctx->sock_fd > -1) {
@@ -1177,6 +1217,8 @@ int lwm2m_rd_client_start(struct lwm2m_ctx *client_ctx, const char *ep_name,
 	set_sm_state(ENGINE_INIT);
 	strncpy(client.ep_name, ep_name, CLIENT_EP_LEN - 1);
 	client.ep_name[CLIENT_EP_LEN - 1] = '\0';
+	/* Start possible suspended thread */
+	lwm2m_engine_resume();
 	LOG_INF("Start LWM2M Client: %s", log_strdup(client.ep_name));
 
 	k_mutex_unlock(&client.mutex);
@@ -1209,6 +1251,55 @@ int lwm2m_rd_client_stop(struct lwm2m_ctx *client_ctx,
 	while (get_sm_state() != ENGINE_IDLE) {
 		k_sleep(K_MSEC(STATE_MACHINE_UPDATE_INTERVAL_MS / 2));
 	}
+	lwm2m_engine_pause();
+
+	return 0;
+}
+
+
+int lwm2m_rd_client_pause(struct lwm2m_ctx *client_ctx)
+{
+
+	k_mutex_lock(&client.mutex, K_FOREVER);
+
+	if (client.ctx != client_ctx) {
+		k_mutex_unlock(&client.mutex);
+		LOG_WRN("Cannot pause. Wrong context");
+		return -EPERM;
+	}
+
+	client.suspend_thread = true;
+	k_mutex_unlock(&client.mutex);
+	while (get_sm_state() != ENGINE_SUSPEND) {
+		k_sleep(K_MSEC(STATE_MACHINE_UPDATE_INTERVAL_MS / 2));
+	}
+	lwm2m_engine_pause();
+
+	return 0;
+}
+
+int lwm2m_rd_client_resume(struct lwm2m_ctx *client_ctx)
+{
+
+	k_mutex_lock(&client.mutex, K_FOREVER);
+
+	if (client.ctx != client_ctx) {
+		k_mutex_unlock(&client.mutex);
+		LOG_WRN("Cannot pause. Wrong context");
+		return -EPERM;
+	}
+
+	if (client.engine_state != ENGINE_SUSPEND) {
+		k_mutex_unlock(&client.mutex);
+		LOG_WRN("Cannot resume state is not Suspended");
+		return -EPERM;
+	}
+	client.engine_state = suspended_client_state;
+
+	k_mutex_unlock(&client.mutex);
+	LOG_ERR("Start resume ");
+	lwm2m_engine_resume();
+
 	return 0;
 }
 
@@ -1222,7 +1313,7 @@ struct lwm2m_ctx *lwm2m_rd_client_ctx(void)
 	return client.ctx;
 }
 
-#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
+
 int lwm2m_rd_client_connection_resume(struct lwm2m_ctx *client_ctx)
 {
 	if (client.ctx != client_ctx) {
@@ -1249,7 +1340,6 @@ int lwm2m_rd_client_connection_resume(struct lwm2m_ctx *client_ctx)
 
 	return 0;
 }
-#endif
 
 int lwm2m_rd_client_timeout(struct lwm2m_ctx *client_ctx)
 {
