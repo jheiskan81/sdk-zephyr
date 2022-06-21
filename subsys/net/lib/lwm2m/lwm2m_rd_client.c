@@ -185,7 +185,7 @@ static void set_sm_state(uint8_t sm_state)
 
 	/* Suspend socket after Event callback */
 	if (event == LWM2M_RD_CLIENT_EVENT_QUEUE_MODE_RX_OFF) {
-		lwm2m_close_socket(client.ctx);
+		lwm2m_close_suspend(client.ctx);
 	}
 }
 
@@ -1084,7 +1084,7 @@ static void lwm2m_rd_client_service(struct k_work *work)
 			if (!client.ctx->connection_suspended && client.event_cb) {
 				client.event_cb(client.ctx, event);
 			}
-			lwm2m_close_socket(client.ctx);
+			lwm2m_close_suspend(client.ctx);
 			suspended_client_state = get_sm_state();
 			client.engine_state = ENGINE_SUSPEND;
 			client.suspend_thread = false;
@@ -1096,6 +1096,7 @@ static void lwm2m_rd_client_service(struct k_work *work)
 			/* Start resume process */
 			k_mutex_lock(&client.mutex, K_FOREVER);
 			LOG_ERR("Resume Client");
+			lwm2m_close_socket(client.ctx);
 			
 			if (!sm_is_registered() ||
 			    (sm_is_registered() &&

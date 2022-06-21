@@ -1483,12 +1483,33 @@ int lwm2m_close_socket(struct lwm2m_ctx *client_ctx)
 	return ret;
 }
 
+int lwm2m_close_suspend(struct lwm2m_ctx *client_ctx)
+{
+	int ret = 0;
+
+	if (client_ctx->sock_fd >= 0 && !client_ctx->connection_suspended) {
+		int socket_temp_id = client_ctx->sock_fd;
+
+
+		client_ctx->sock_fd = -1;
+		client_ctx->connection_suspended = true;
+#if defined(CONFIG_LWM2M_QUEUE_MODE_ENABLED)
+		/* Enable Queue mode buffer store */
+		client_ctx->buffer_client_messages = true;
+#endif
+		lwm2m_socket_update(client_ctx);
+		client_ctx->sock_fd = socket_temp_id;
+	}
+	return ret;
+}
+
 int lwm2m_engine_connection_resume(struct lwm2m_ctx *client_ctx)
 {
 
 	int ret;
 
 	if (client_ctx->connection_suspended) {
+		lwm2m_close_socket(client_ctx);
 		client_ctx->connection_suspended = false;
 		ret = lwm2m_open_socket(client_ctx);
 		if (ret) {

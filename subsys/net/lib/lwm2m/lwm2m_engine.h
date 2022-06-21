@@ -200,6 +200,7 @@ void lwm2m_engine_resume(void);
 int lwm2m_engine_connection_resume(struct lwm2m_ctx *client_ctx);
 int lwm2m_open_socket(struct lwm2m_ctx *client_ctx);
 int lwm2m_close_socket(struct lwm2m_ctx *client_ctx);
+int lwm2m_close_suspend(struct lwm2m_ctx *client_ctx);
 int lwm2m_push_queued_buffers(struct lwm2m_ctx *client_ctx);
 int  lwm2m_parse_peerinfo(char *url, struct lwm2m_ctx *client_ctx, bool is_firmware_uri);
 
