@@ -775,7 +775,7 @@ static int load_tls_credential(struct lwm2m_ctx *client_ctx, uint16_t res_id,
 	return ret;
 }
 #endif /* CONFIG_LWM2M_DTLS_SUPPORT && CONFIG_TLS_CREDENTIALS*/
-
+static bool purge_cache;
 int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 {
 	socklen_t addr_len;
@@ -828,6 +828,16 @@ int lwm2m_socket_start(struct lwm2m_ctx *client_ctx)
 		}
 
 		if (IS_ENABLED(CONFIG_LWM2M_TLS_SESSION_CACHING)) {
+
+			if (!purge_cache) {
+				int cache_flush = 1U;
+
+				ret = setsockopt(client_ctx->sock_fd, SOL_TLS,
+						 TLS_SESSION_CACHE_PURGE, &cache_flush,
+						 sizeof(cache_flush));
+						 purge_cache = true;
+			}
+
 			int session_cache = TLS_SESSION_CACHE_ENABLED;
 
 			ret = zsock_setsockopt(client_ctx->sock_fd, SOL_TLS, TLS_SESSION_CACHE,
